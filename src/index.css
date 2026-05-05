@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-glass-bg: rgba(255, 255, 255, 0.5);
+  --color-glass-border: rgba(255, 255, 255, 0.8);
+  --color-text-main: #5C5248;
+  --color-text-sub: #82786D;
+  --color-accent-green: #769C7C;
+  --color-accent-red: #CD7A70;
+  --color-accent-blue: #87A2B4;
+}
+
+body {
+  font-family: 'Nunito', 'Noto Sans TC', Arial, sans-serif;
+  background-color: #FAF6F0;
+  background-image: 
+    radial-gradient(at 0% 0%, #FFFDF9 0px, transparent 50%),
+    radial-gradient(at 100% 0%, #F5EFEB 0px, transparent 50%),
+    radial-gradient(at 50% 100%, #EFEDE6 0px, transparent 50%);
+  background-attachment: fixed;
+  color: var(--color-text-main);
+  min-height: 100vh;
+}
+
+.glass {
+  background: var(--color-glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 24px;
+  box-shadow: 0 10px 40px -10px rgba(180, 170, 160, 0.2);
+}
+
+/* Hide scrollbar for the right side column */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Markdown prose rendering */
+.markdown-body {
+  word-break: break-word;
+}
+.markdown-body p {
+  margin-bottom: 0.75rem;
+}
+.markdown-body pre {
+  background-color: rgba(0,0,0,0.05);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+  font-size: 0.8em;
+}
+.markdown-body code {
+  background-color: rgba(0,0,0,0.05);
+  padding: 0.15rem 0.3rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono, monospace);
+}
+.markdown-body pre code {
+  background-color: transparent;
+  padding: 0;
+}
+.markdown-body ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-body ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--color-text-main);
+}
+.markdown-body h1 { font-size: 1.5em; }
+.markdown-body h2 { font-size: 1.25em; }
+.markdown-body h3 { font-size: 1.1em; }
+.markdown-body a {
+  color: var(--color-accent-blue);
+  text-decoration: underline;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(200%);
+  }
+}
