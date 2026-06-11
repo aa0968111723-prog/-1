@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CATEGORIES, BudgetConfig } from '../types';
-import { Target, Bell, Trash2, Wallet } from 'lucide-react';
+import { Target, Bell, Trash2, Wallet, HandCoins } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { formatCurrency } from '../lib/formatters';
 
@@ -8,13 +8,29 @@ interface BudgetSettingsProps {
   budgets: Record<string, BudgetConfig>;
   onUpdateBudget: (category: string, config: BudgetConfig) => void;
   onDeleteBudget: (category: string) => void;
+  monthlyIncome?: number;
+  onUpdateMonthlyIncome?: (income: number) => void;
 }
 
-export default function BudgetSettings({ budgets, onUpdateBudget, onDeleteBudget }: BudgetSettingsProps) {
+export default function BudgetSettings({ budgets, onUpdateBudget, onDeleteBudget, monthlyIncome = 0, onUpdateMonthlyIncome }: BudgetSettingsProps) {
   const [category, setCategory] = useState(CATEGORIES.expense[0]);
   const [amount, setAmount] = useState('');
   const [alertEnabled, setAlertEnabled] = useState(false);
   const [alertThreshold, setAlertThreshold] = useState('80');
+  
+  const [localIncome, setLocalIncome] = useState(monthlyIncome.toString());
+
+  // Sync local if the prop changes initially
+  useEffect(() => {
+    setLocalIncome(monthlyIncome === 0 ? '' : monthlyIncome.toString());
+  }, [monthlyIncome]);
+
+  const handleIncomeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateMonthlyIncome && localIncome) {
+      onUpdateMonthlyIncome(Number(localIncome));
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,12 +48,50 @@ export default function BudgetSettings({ budgets, onUpdateBudget, onDeleteBudget
 
   return (
     <div className="space-y-6">
+      <div className="glass p-6">
+        <h3 className="text-lg font-bold text-[#5C5248] mb-6 flex items-center gap-2">
+          <HandCoins className="text-[#87A2B4]" size={20} />
+          每月固定收入設定
+        </h3>
+        <form onSubmit={handleIncomeSubmit} className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1 relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#82786D] font-bold">NT$</span>
+            <input
+              type="number"
+              value={localIncome}
+              onChange={(e) => setLocalIncome(e.target.value)}
+              placeholder="輸入您的預期每月固定收入"
+              min="0"
+              className="w-full pl-12 pr-4 py-3 bg-white/60 border border-black/5 text-[#5C5248] font-bold rounded-xl focus:ring-2 focus:ring-[#87A2B4]/50 focus:border-transparent focus:bg-white transition-all outline-none"
+            />
+          </div>
+          <button
+            type="submit"
+            className="whitespace-nowrap bg-white text-[#5C5248] border border-black/5 font-bold px-6 py-3 rounded-xl transition-all shadow-sm hover:shadow-md hover:bg-white/80 active:scale-[0.98]"
+          >
+            儲存收入
+          </button>
+        </form>
+        {monthlyIncome > 0 && (
+          <div className="mt-4 flex items-center justify-between p-4 bg-[#769C7C]/10 rounded-xl border border-[#769C7C]/20">
+            <span className="text-sm font-bold text-[#769C7C]">目前設定值</span>
+            <span className="font-mono font-extrabold text-[#769C7C] text-lg">{formatCurrency(monthlyIncome)}</span>
+          </div>
+        )}
+      </div>
+
       {hasConfiguredBudgets && (
         <div className="glass p-6 text-center">
-          <div className="text-[10px] font-bold text-[#82786D] uppercase tracking-[0.2em] mb-2">本月總編列預算</div>
+          <div className="text-[10px] font-bold text-[#82786D] uppercase tracking-[0.2em] mb-2">本月總編列預算 / 月收入</div>
           <div className="text-4xl font-extrabold text-[#769C7C] tracking-tighter">
             {formatCurrency(totalBudget)}
+            {monthlyIncome > 0 && <span className="text-lg text-[#82786D] ml-2">/ {formatCurrency(monthlyIncome)}</span>}
           </div>
+          {monthlyIncome > 0 && (
+            <div className="mt-4 text-xs font-bold font-mono tracking-wider text-[#D1A066]">
+              預算佔比: {((totalBudget / monthlyIncome) * 100).toFixed(1)}%
+            </div>
+          )}
         </div>
       )}
 
@@ -142,9 +196,10 @@ export default function BudgetSettings({ budgets, onUpdateBudget, onDeleteBudget
                   <span className="font-mono font-extrabold text-[#769C7C]">{formatCurrency(config.amount)}</span>
                   <button
                     onClick={() => onDeleteBudget(cat)}
-                    className="p-2 text-[#CD7A70]/60 hover:text-[#CD7A70] hover:bg-[#CD7A70]/10 rounded-xl transition-colors"
+                    className="p-1.5 text-[#CD7A70]/40 hover:text-[#CD7A70] hover:bg-[#CD7A70]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="刪除預算"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

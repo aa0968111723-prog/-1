@@ -46,11 +46,25 @@ export const FREQUENCY_LABELS: Record<Frequency, string> = {
   yearly: '每年',
 };
 
+export type DebtType = 'credit_card' | 'mortgage' | 'auto_loan' | 'student_loan' | 'personal_loan' | 'other';
+
+export const DEBT_TYPE_LABELS: Record<DebtType, string> = {
+  credit_card: '信用卡債',
+  mortgage: '房屋貸款',
+  auto_loan: '汽車貸款',
+  student_loan: '學生貸款',
+  personal_loan: '個人信貸',
+  other: '其他負債'
+};
+
 export interface Debt {
   id: string;
   name: string;
+  type?: DebtType;
   amount: number;
+  initialAmount?: number;
   interestRate: number;
+  monthlyPayment?: number;
   dueDate: string;
   note: string;
 }

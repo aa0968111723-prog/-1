@@ -6,17 +6,24 @@ import BudgetSettings from './components/BudgetSettings';
 import RecurringSettings from './components/RecurringSettings';
 import DebtManager from './components/DebtManager';
 import GoalPlanner from './components/GoalPlanner';
+import GoalSandbox from './components/GoalSandbox';
+import DebtAdvice from './components/DebtAdvice';
 import CashflowInference from './components/CashflowInference';
 import TransactionForm from './components/TransactionForm';
 import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X } from 'lucide-react';
 import { cn } from './lib/utils';
 
-type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities';
+type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor';
 
 export default function App() {
   const [financeTab, setFinanceTab] = useState<FinanceTabType>('overview');
   const [isGlobalAddOpen, setIsGlobalAddOpen] = useState(false);
   
+  const [monthlyIncome, setMonthlyIncome] = useState<number>(() => {
+    const saved = localStorage.getItem('finance_monthly_income');
+    return saved ? Number(saved) : 0;
+  });
+
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('finance_transactions');
     if (saved) {
@@ -78,6 +85,10 @@ export default function App() {
   });
 
   // Save to local storage
+  useEffect(() => {
+    localStorage.setItem('finance_monthly_income', monthlyIncome.toString());
+  }, [monthlyIncome]);
+
   useEffect(() => {
     localStorage.setItem('finance_transactions', JSON.stringify(transactions));
   }, [transactions]);
@@ -222,12 +233,20 @@ export default function App() {
     setDebts(prev => prev.filter(d => d.id !== id));
   };
 
+  const updateDebt = (id: string, updates: Partial<Debt>) => {
+    setDebts(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+  };
+
   const addGoal = (goal: Omit<Goal, 'id'>) => {
     setGoals(prev => [{ ...goal, id: crypto.randomUUID() }, ...prev]);
   };
 
   const deleteGoal = (id: string) => {
     setGoals(prev => prev.filter(g => g.id !== id));
+  };
+
+  const updateGoal = (id: string, updates: Partial<Goal>) => {
+    setGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
   };
 
   const timeGreeting = useMemo(() => {
@@ -286,6 +305,13 @@ export default function App() {
               >
                 <Target size={18} /> <span className="hidden sm:inline">負債與目標</span>
               </button>
+              <button
+                onClick={() => setFinanceTab('advisor')}
+                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
+                  financeTab === 'advisor' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#D1A066] hover:text-[#5C5248] hover:bg-white/60")}
+              >
+                <span className="text-xl">✨</span> <span className="hidden sm:inline">AI 財務顧問</span>
+              </button>
             </div>
           </div>
         </div>
@@ -312,15 +338,34 @@ export default function App() {
             )}
             {financeTab === 'planning' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <BudgetSettings budgets={budgets} onUpdateBudget={updateBudget} onDeleteBudget={deleteBudget} />
+                <BudgetSettings 
+                  budgets={budgets} 
+                  onUpdateBudget={updateBudget} 
+                  onDeleteBudget={deleteBudget} 
+                  monthlyIncome={monthlyIncome}
+                  onUpdateMonthlyIncome={setMonthlyIncome}
+                />
                 <RecurringSettings recurring={recurring} onAdd={addRecurring} onDelete={deleteRecurring} />
               </div>
             )}
             {financeTab === 'liabilities' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <DebtManager debts={debts} onAdd={addDebt} onDelete={deleteDebt} onAddTransaction={addTransaction} />
-                <GoalPlanner goals={goals} onAdd={addGoal} onDelete={deleteGoal} onAddTransaction={addTransaction} />
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <DebtManager debts={debts} onAdd={addDebt} onDelete={deleteDebt} onUpdate={updateDebt} onAddTransaction={addTransaction} />
+                  <GoalPlanner goals={goals} debts={debts} transactions={transactions} monthlyIncome={monthlyIncome} budgets={budgets} onAdd={addGoal} onDelete={deleteGoal} onUpdate={updateGoal} onAddTransaction={addTransaction} />
+                </div>
+                <GoalSandbox goals={goals} debts={debts} transactions={transactions} monthlyIncome={monthlyIncome} />
               </div>
+            )}
+            {financeTab === 'advisor' && (
+              <DebtAdvice 
+                debts={debts} 
+                monthlyIncome={monthlyIncome} 
+                transactions={transactions} 
+                budgets={budgets} 
+                recurring={recurring} 
+                goals={goals} 
+              />
             )}
           </div>
         </div>
