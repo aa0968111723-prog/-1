@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import { Pinecone } from '@pinecone-database/pinecone';
 
 // Load environment variables from .env if present
-dotenv.config();
+dotenv.config({ override: true });
 
 async function startServer() {
   const app = express();
@@ -42,7 +42,7 @@ async function startServer() {
 
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.1-pro-preview",
         contents: prompt,
       });
 
@@ -50,6 +50,95 @@ async function startServer() {
     } catch (error: any) {
       console.error("Gemini API Error:", error);
       res.status(500).json({ error: error.message || "An error occurred with the Gemini API." });
+    }
+  });
+
+  // Assistant Chat Route
+  app.post("/api/gemini/assistant", async (req, res) => {
+    try {
+      const { messages = [], message } = req.body;
+      
+      if (!message) {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      const { GoogleGenAI } = await import("@google/genai");
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+         return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
+      }
+
+      const contents = messages.map((msg: any) => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      }));
+      contents.push({ role: 'user', parts: [{ text: message }] });
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents,
+        config: {
+          systemInstruction: "You are an expert AI financial advisor and API integration specialist. You can help users building finance apps, analyzing website payment flows, and checking API statuses. Respond in Traditional Chinese. Be concise and professional.",
+          tools: [{ googleSearch: {} }]
+        }
+      });
+
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const sources: { uri: string; title: string }[] = [];
+      
+      for (const chunk of chunks) {
+        if (chunk.web?.uri) {
+          sources.push({ uri: chunk.web.uri, title: chunk.web.title });
+        }
+      }
+
+      res.json({ text: response.text, sources: sources.length > 0 ? sources : undefined });
+    } catch (error: any) {
+      console.error("Gemini Assistant Error:", error);
+      res.status(500).json({ error: error.message || "An error occurred." });
+    }
+  });
+
+  // Background Image Generator
+  app.post("/api/gemini/generate-bg", async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+      
+      const { GoogleGenAI } = await import("@google/genai");
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY is not configured." });
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite-image',
+        contents: {
+          parts: [{ text: `Aesthetically pleasing background image for a dark mode compatible chat window, ${prompt}` }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "3:4"
+          }
+        }
+      });
+
+      let base64Image = null;
+      let mimeType = null;
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+           base64Image = part.inlineData.data;
+           mimeType = part.inlineData.mimeType || 'image/png';
+           break;
+        }
+      }
+      
+      if (!base64Image) throw new Error("No image generated");
+      
+      res.json({ imageUrl: `data:${mimeType};base64,${base64Image}` });
+    } catch (error: any) {
+      console.error("Gemini BG Gen Error:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 

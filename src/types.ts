@@ -77,6 +77,14 @@ export interface Goal {
   targetDate: string;
 }
 
+export interface SpreadsheetRecord {
+  id: string;
+  period: string; // e.g. '2023-01' or user defined string
+  assets: number;
+  liabilities: number;
+  note: string;
+}
+
 export const CATEGORIES = {
   income: ['薪資收入', '投資理財', '零星獎金', '其他收入', 'Investments'],
   expense: ['餐飲美食', '交通出行', '休閒娛樂', '購物消費', '居家生活', '水電網費', '醫療保健', '學習進修', '負債償還', '其他支出', 'Loan Repayments'],

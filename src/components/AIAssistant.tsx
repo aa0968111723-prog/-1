@@ -1,11 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, X, Loader2, Sparkles, Globe, Image as ImageIcon } from 'lucide-react';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
-
-// Initialize the Gemini API client
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 interface Message {
   role: 'user' | 'model';
@@ -30,24 +26,9 @@ export default function AIAssistant() {
   const [bgPrompt, setBgPrompt] = useState('');
   const [isGeneratingBg, setIsGeneratingBg] = useState(false);
 
-  // We need to keep a reference to the chat session
-  const chatSessionRef = useRef<any>(null);
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
-
-  useEffect(() => {
-    // Initialize chat session on load
-    chatSessionRef.current = ai.chats.create({
-      model: "gemini-3.1-pro-preview",
-      config: {
-        systemInstruction: "You are an expert AI financial advisor and API integration specialist. You can help users building finance apps, analyzing website payment flows, and checking API statuses. Respond in Traditional Chinese. Be concise and professional.",
-        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-        tools: [{ googleSearch: {} }] // Enable Search Grounding
-      }
-    });
-  }, []);
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -55,30 +36,34 @@ export default function AIAssistant() {
 
     const userText = input.trim();
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userText }]);
+    const newMessages: Message[] = [...messages, { role: 'user', content: userText }];
+    setMessages(newMessages);
     setIsLoading(true);
 
     try {
-      const response = await chatSessionRef.current.sendMessage({ message: userText });
+      const response = await fetch('/api/gemini/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: messages,
+          message: userText
+        })
+      });
+
+      const data = await response.json();
       
-      // Extract links if using Google Search grounding
-      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-      const sources: { uri: string; title: string }[] = [];
-      
-      for (const chunk of chunks) {
-        if (chunk.web?.uri) {
-          sources.push({ uri: chunk.web.uri, title: chunk.web.title });
-        }
+      if (!response.ok) {
+        throw new Error(data.error || 'API Error');
       }
 
       setMessages(prev => [...prev, { 
         role: 'model', 
-        content: response.text || '連線發生錯誤，請重試。',
-        sources: sources.length > 0 ? sources : undefined
+        content: data.text || '無回應',
+        sources: data.sources
       }]);
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { role: 'model', content: '抱歉，處理您的請求時發生錯誤。請確認網路狀況。' }]);
+      setMessages(prev => [...prev, { role: 'model', content: '抱歉，處理您的請求時發生錯誤。請確認網路狀況與後端設定。' }]);
     } finally {
       setIsLoading(false);
     }
@@ -90,26 +75,22 @@ export default function AIAssistant() {
 
     setIsGeneratingBg(true);
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: `Aesthetically pleasing background image for a dark mode compatible chat window, ${bgPrompt}` }],
-        },
+      const response = await fetch('/api/gemini/generate-bg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: bgPrompt })
       });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate background');
+      }
 
-      const candidates = response.candidates;
-      if (candidates && candidates.length > 0) {
-        const parts = candidates[0].content.parts;
-        for (const part of parts) {
-          if (part.inlineData) {
-            const base64Str = part.inlineData.data;
-            const imageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${base64Str}`;
-            setBgImage(imageUrl);
-            setShowBgSettings(false);
-            setBgPrompt('');
-            break;
-          }
-        }
+      if (data.imageUrl) {
+        setBgImage(data.imageUrl);
+        setShowBgSettings(false);
+        setBgPrompt('');
       }
     } catch (error) {
       console.error("Failed to generate background:", error);

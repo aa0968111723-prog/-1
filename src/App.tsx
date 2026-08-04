@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Transaction, BudgetConfig, RecurringTransaction, Debt, Goal } from './types';
+import { Transaction, BudgetConfig, RecurringTransaction, Debt, Goal, SpreadsheetRecord } from './types';
 import Dashboard from './components/Dashboard';
 import TransactionList from './components/TransactionList';
 import BudgetSettings from './components/BudgetSettings';
@@ -8,12 +8,13 @@ import DebtManager from './components/DebtManager';
 import GoalPlanner from './components/GoalPlanner';
 import GoalSandbox from './components/GoalSandbox';
 import DebtAdvice from './components/DebtAdvice';
+import Spreadsheet from './components/Spreadsheet';
 import CashflowInference from './components/CashflowInference';
 import TransactionForm from './components/TransactionForm';
 import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X } from 'lucide-react';
 import { cn } from './lib/utils';
 
-type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor';
+type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor' | 'spreadsheet';
 
 export default function App() {
   const [financeTab, setFinanceTab] = useState<FinanceTabType>('overview');
@@ -84,6 +85,18 @@ export default function App() {
     return [];
   });
 
+  const [spreadsheetRecords, setSpreadsheetRecords] = useState<SpreadsheetRecord[]>(() => {
+    const saved = localStorage.getItem('finance_spreadsheet_records');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse spreadsheet records');
+      }
+    }
+    return [];
+  });
+
   // Save to local storage
   useEffect(() => {
     localStorage.setItem('finance_monthly_income', monthlyIncome.toString());
@@ -108,6 +121,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('finance_goals', JSON.stringify(goals));
   }, [goals]);
+
+  useEffect(() => {
+    localStorage.setItem('finance_spreadsheet_records', JSON.stringify(spreadsheetRecords));
+  }, [spreadsheetRecords]);
 
   // Process recurring transactions
   useEffect(() => {
@@ -249,6 +266,18 @@ export default function App() {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
   };
 
+  const addSpreadsheetRecord = (record: Omit<SpreadsheetRecord, 'id'>) => {
+    setSpreadsheetRecords(prev => [...prev, { ...record, id: crypto.randomUUID() }]);
+  };
+
+  const updateSpreadsheetRecord = (id: string, updates: Partial<SpreadsheetRecord>) => {
+    setSpreadsheetRecords(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  };
+
+  const deleteSpreadsheetRecord = (id: string) => {
+    setSpreadsheetRecords(prev => prev.filter(r => r.id !== id));
+  };
+
   const timeGreeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour < 5) return '夜深了，早點休息哦 🌙';
@@ -312,6 +341,13 @@ export default function App() {
               >
                 <span className="text-xl">✨</span> <span className="hidden sm:inline">AI 財務顧問</span>
               </button>
+              <button
+                onClick={() => setFinanceTab('spreadsheet')}
+                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
+                  financeTab === 'spreadsheet' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
+              >
+                <span className="text-xl">📝</span> <span className="hidden sm:inline">長期試算表</span>
+              </button>
             </div>
           </div>
         </div>
@@ -365,6 +401,14 @@ export default function App() {
                 budgets={budgets} 
                 recurring={recurring} 
                 goals={goals} 
+              />
+            )}
+            {financeTab === 'spreadsheet' && (
+              <Spreadsheet 
+                records={spreadsheetRecords}
+                onAdd={addSpreadsheetRecord}
+                onUpdate={updateSpreadsheetRecord}
+                onDelete={deleteSpreadsheetRecord}
               />
             )}
           </div>
