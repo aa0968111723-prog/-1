@@ -67,14 +67,39 @@ Native Overlay 層 (com.fintracker.app.pet)
 無 WakeLock、無輪詢、無永久動畫：閒置動畫為 8–20 秒一次的單發短動畫（動畫完成即停止），
 財務狀態只在 web 資料變動時推送（300ms debounce）。
 
+## 共用設定（web/native 永不漂移）
+
+`shared/pet-shared-config.json` 是分類目錄（stable id + 繁中 label + emoji）、
+快速分類 chips、支付方式與 NL 解析關鍵字的唯一來源：web 直接 import，
+`npm run sync:shared` 複製為 Android asset（CI 以 `cmp` 驗證兩份一致）。
+Native Quick Add 的分類優先使用 web 同步的使用頻率排序（`syncQuickCategories`），
+沒有同步過才用 bundled 預設 —— Kotlin 内不硬編分類。
+
+## Outbox（App 沒開也能記帳）
+
+Native Quick Add → 持久化 outbox（schema v2：id/createdAt/source/schemaVersion/
+syncState，`commit()` 寫入）→ 成功 UI（含幾秒復原）→ WebView 存活時立即 drain、
+否則下次開 App drain → 走原本 `addTransaction`（以 stable id 冪等，crash-before-ack
+重放不重複）→ ack 移除。損壞的 queue payload 會備份到獨立 key 後重建，
+絕不因壞資料讓服務起不來。
+
+## 動畫仲裁
+
+`PetAnimationController`：priority state machine（success > celebrate > dragging >
+warning > … > idle），成功動畫不會被眨眼蓋掉；夜間 (23:00–07:00) 進入 sleep、
+系統關閉動畫縮放時自動降為簡化動畫。
+
 ## 已知限制
 
-- Native QuickAdd 的分類為固定常用清單（web 端才有依使用頻率排序 + 自然語言解析）。
 - 桌寵記的帳在 App 下次開啟（或 WebView 存活時即時）進入正式帳本 —— 這是刻意的
-  hand-off 設計，避免兩套資料。
-- 全螢幕 App 偵測不透過 Accessibility Service（不申請敏感權限），以自動收邊降低干擾。
-- 本開發環境無法連 dl.google.com（Android SDK / AGP），`gradle build` 需在本機
-  Android Studio 驗證；純邏輯 Kotlin 測試已在 JVM 上通過。
+  hand-off 設計，避免兩套資料（已評估 SQLite：目前 web-authoritative + durable
+  outbox 的一致性已足夠，不為外觀重構資料庫）。
+- 全螢幕 App 偵測不透過 Accessibility Service（不申請敏感權限），以自動收邊 +
+  「暫停 30 分鐘」降低干擾。
+- 本開發環境無法連 dl.google.com（Android SDK / AGP），完整 `gradlew test /
+  assembleDebug` 由 GitHub Actions CI 執行並上傳 `app-debug.apk` artifact；
+  純邏輯 Kotlin 測試（29 條）已在 JVM 上通過。實機矩陣見
+  `docs/DEVICE_TEST_CHECKLIST.md`。
 
 ## 本機建置
 

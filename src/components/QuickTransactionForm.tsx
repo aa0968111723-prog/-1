@@ -10,6 +10,7 @@ import { MessageSquareText, ChevronDown, ChevronUp } from 'lucide-react';
 interface QuickTransactionFormProps {
   transactions: Transaction[];
   fastMode: boolean;
+  defaultType?: TransactionType;
   onAddTransaction: (transaction: Omit<Transaction, 'id'>) => void;
   onSaved?: () => void;
 }
@@ -22,10 +23,11 @@ interface QuickTransactionFormProps {
 export default function QuickTransactionForm({
   transactions,
   fastMode,
+  defaultType = 'expense',
   onAddTransaction,
   onSaved,
 }: QuickTransactionFormProps) {
-  const [type, setType] = useState<TransactionType>('expense');
+  const [type, setType] = useState<TransactionType>(defaultType);
   const [amount, setAmount] = useState('');
   const [selectedChip, setSelectedChip] = useState<QuickCategoryChip | null>(null);
   const [nlText, setNlText] = useState('');

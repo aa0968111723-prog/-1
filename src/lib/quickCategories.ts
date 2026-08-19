@@ -1,62 +1,61 @@
-/** Quick-add category chips: most-used first, sensible defaults for new users. */
+/**
+ * Quick-add category chips: pinned first, then most-used (recency-weighted),
+ * padded with the shared defaults. Chip definitions come from the shared
+ * catalog (shared/pet-shared-config.json) so web and native stay identical.
+ */
 
 import { Transaction, TransactionType, CATEGORIES } from '../types';
+import { CATEGORY_DEFS, QUICK_CHIP_DEFS, categoryIdForStored, emojiForCategory } from './categoryCatalog';
+import { STORAGE_KEYS, loadJSON } from './storage';
 
 export interface QuickCategoryChip {
   emoji: string;
   label: string;
-  /** The real FinTracker category this chip writes — never a parallel taxonomy. */
+  /** The real FinTracker category (label as stored) — never a parallel taxonomy. */
   category: string;
+  /** Stable cross-layer category id. */
+  categoryId: string;
   /** Optional note auto-filled when the chip is more specific than the category. */
   note?: string;
 }
 
-export const CATEGORY_EMOJI: Record<string, string> = {
-  餐飲美食: '🍱',
-  交通出行: '🚌',
-  休閒娛樂: '🎮',
-  購物消費: '🛍️',
-  居家生活: '🏠',
-  水電網費: '💡',
-  醫療保健: '💊',
-  學習進修: '📚',
-  負債償還: '💳',
-  其他支出: '📦',
-  'Loan Repayments': '💳',
-  薪資收入: '💰',
-  投資理財: '📈',
-  零星獎金: '🧧',
-  其他收入: '✨',
-  Investments: '📈',
-};
+/** Back-compat emoji lookup by stored label/id. */
+export const CATEGORY_EMOJI: Record<string, string> = Object.fromEntries(
+  [...CATEGORY_DEFS.expense, ...CATEGORY_DEFS.income].flatMap(d => [
+    [d.label, d.emoji],
+    [d.id, d.emoji],
+  ]),
+);
 
-const DEFAULT_EXPENSE_CHIPS: QuickCategoryChip[] = [
-  { emoji: '🍱', label: '餐飲', category: '餐飲美食' },
-  { emoji: '🥤', label: '飲料', category: '餐飲美食', note: '飲料' },
-  { emoji: '🚌', label: '交通', category: '交通出行' },
-  { emoji: '🛍️', label: '購物', category: '購物消費' },
-  { emoji: '🎮', label: '娛樂', category: '休閒娛樂' },
-];
+function defaultChips(type: TransactionType): QuickCategoryChip[] {
+  return QUICK_CHIP_DEFS[type].map(c => ({
+    emoji: c.emoji,
+    label: c.label,
+    category: CATEGORY_DEFS[type].find(d => d.id === c.categoryId)?.label ?? c.label,
+    categoryId: c.categoryId,
+    ...(c.note ? { note: c.note } : {}),
+  }));
+}
 
-const DEFAULT_INCOME_CHIPS: QuickCategoryChip[] = [
-  { emoji: '💰', label: '薪資', category: '薪資收入' },
-  { emoji: '🧧', label: '獎金', category: '零星獎金' },
-  { emoji: '📈', label: '投資', category: '投資理財' },
-  { emoji: '✨', label: '其他', category: '其他收入' },
-];
+/** User-pinned category ids, managed in 桌寵設定 → 快速記帳. */
+export function loadPinnedCategoryIds(storage: Storage | undefined = globalThis.localStorage): string[] {
+  const pinned = loadJSON<unknown>(STORAGE_KEYS.pinnedCategories, [], storage);
+  return Array.isArray(pinned) ? pinned.filter((p): p is string => typeof p === 'string') : [];
+}
 
 /**
- * Returns 4-6 chips: categories the user actually uses most (last 60 days,
- * weighted toward recency) padded with defaults. Chips always map onto the
- * existing CATEGORIES taxonomy.
+ * Returns 4-6 chips ordered: pinned -> frequently/recently used (last 60
+ * days) -> shared defaults. Chips always map onto the existing CATEGORIES
+ * taxonomy.
  */
 export function getQuickCategories(
   transactions: Transaction[],
   type: TransactionType,
   now: Date = new Date(),
   max = 6,
+  pinnedIds: string[] = loadPinnedCategoryIds(),
 ): QuickCategoryChip[] {
-  const defaults = type === 'expense' ? DEFAULT_EXPENSE_CHIPS : DEFAULT_INCOME_CHIPS;
+  const defaults = defaultChips(type);
   const cutoff = new Date(now);
   cutoff.setDate(cutoff.getDate() - 60);
   const cutoffStr = cutoff.toISOString().split('T')[0];
@@ -75,16 +74,27 @@ export function getQuickCategories(
   const chips: QuickCategoryChip[] = [];
   const seen = new Set<string>();
   const pushChip = (chip: QuickCategoryChip) => {
-    const key = chip.note ? `${chip.category}:${chip.note}` : chip.category;
+    const key = chip.note ? `${chip.categoryId}:${chip.note}` : chip.categoryId;
     if (seen.has(key) || chips.length >= max) return;
     seen.add(key);
     chips.push(chip);
   };
+  const chipForCategory = (category: string): QuickCategoryChip => {
+    const id = categoryIdForStored(category);
+    const preset = defaults.find(d => d.categoryId === id && !d.note);
+    return preset ?? { emoji: emojiForCategory(category), label: category.slice(0, 2), category, categoryId: id };
+  };
 
-  for (const category of used) {
-    const preset = defaults.find(d => d.category === category && !d.note);
-    pushChip(preset ?? { emoji: CATEGORY_EMOJI[category] ?? '🏷️', label: category.slice(0, 2), category });
+  // 1. pinned
+  const typeIds = new Set(CATEGORY_DEFS[type].map(d => d.id));
+  for (const id of pinnedIds) {
+    if (!typeIds.has(id)) continue;
+    const def = CATEGORY_DEFS[type].find(d => d.id === id)!;
+    pushChip(chipForCategory(def.label));
   }
+  // 2. frequently / recently used
+  for (const category of used) pushChip(chipForCategory(category));
+  // 3. shared defaults
   for (const chip of defaults) pushChip(chip);
   return chips;
 }

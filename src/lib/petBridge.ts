@@ -9,7 +9,8 @@
 import { registerPlugin, Capacitor, PluginListenerHandle } from '@capacitor/core';
 import { Transaction } from '../types';
 import { PetSettings } from './petSettings';
-import { PetFinanceState } from './petFinanceState';
+import { PetDisplayState } from './petFinanceState';
+import { QuickCategoryChip } from './quickCategories';
 
 export type PetEventKind =
   | 'petTapped'
@@ -18,16 +19,31 @@ export type PetEventKind =
   | 'openDashboardRequested'
   | 'openPetSettingsRequested'
   | 'transactionQueued'
+  | 'transactionUndone'
   | 'petStopped';
 
 export interface PetEvent {
   kind: PetEventKind;
+  /** Present on transactionUndone: the stable id to reconcile. */
+  id?: string;
 }
 
 export interface PetStatus {
   running: boolean;
   permissionGranted: boolean;
+  notificationsGranted?: boolean;
   pendingCount: number;
+  lastSyncAt?: number;
+}
+
+export interface PetDebugInfo {
+  overlayPermission: boolean;
+  serviceRunning: boolean;
+  pendingCount: number;
+  lastSyncAt: number;
+  positionX: number;
+  positionY: number;
+  edge: string;
 }
 
 /** A transaction captured natively (QuickAddActivity) while the WebView was not around. */
@@ -39,6 +55,11 @@ export interface PendingNativeTransaction {
   date: string;
   note: string;
   paymentMethod?: string;
+  /** Outbox v2 metadata (optional for backward compatibility). */
+  createdAt?: number;
+  source?: string; // 'pet_quick_add' | 'pet_voice' | ...
+  schemaVersion?: number;
+  syncState?: string;
 }
 
 export interface FinancePetPluginContract {
@@ -48,9 +69,12 @@ export interface FinancePetPluginContract {
   stopPet(): Promise<void>;
   getPetStatus(): Promise<PetStatus>;
   setPetSettings(options: { settings: PetSettings }): Promise<void>;
-  updatePetState(options: { state: PetFinanceState & { showAmounts: boolean; petName: string } }): Promise<void>;
+  updatePetState(options: { state: PetDisplayState }): Promise<void>;
+  syncQuickCategories(options: { chips: { expense: QuickCategoryChip[]; income: QuickCategoryChip[] } }): Promise<void>;
   getPendingTransactions(): Promise<{ transactions: PendingNativeTransaction[] }>;
   ackPendingTransactions(options: { ids: string[] }): Promise<void>;
+  authenticate(): Promise<{ success: boolean; reason?: string }>;
+  getDebugInfo(): Promise<PetDebugInfo>;
   addListener(
     eventName: 'petEvent',
     listener: (event: PetEvent) => void,
@@ -73,10 +97,17 @@ class FinancePetWeb {
   }
   async setPetSettings() {}
   async updatePetState() {}
+  async syncQuickCategories() {}
   async getPendingTransactions() {
     return { transactions: [] };
   }
   async ackPendingTransactions() {}
+  async authenticate() {
+    return { success: true, reason: 'web' };
+  }
+  async getDebugInfo(): Promise<PetDebugInfo> {
+    return { overlayPermission: false, serviceRunning: false, pendingCount: 0, lastSyncAt: 0, positionX: 0, positionY: 0, edge: 'right' };
+  }
 }
 
 export const FinancePet = registerPlugin<FinancePetPluginContract>('FinancePet', {

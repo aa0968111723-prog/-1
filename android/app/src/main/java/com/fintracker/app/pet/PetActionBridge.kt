@@ -15,10 +15,11 @@ object PetActionBridge {
     const val EVENT_QUICK_INCOME = "quickIncomeRequested"
     const val EVENT_OPEN_DASHBOARD = "openDashboardRequested"
     const val EVENT_TRANSACTION_QUEUED = "transactionQueued"
+    const val EVENT_TRANSACTION_UNDONE = "transactionUndone"
     const val EVENT_PET_STOPPED = "petStopped"
 
     fun interface Listener {
-        fun onPetEvent(kind: String)
+        fun onPetEvent(kind: String, payload: String?)
     }
 
     private val listeners = CopyOnWriteArraySet<Listener>()
@@ -31,7 +32,8 @@ object PetActionBridge {
         listeners.remove(listener)
     }
 
-    fun emit(kind: String) {
-        listeners.forEach { it.onPetEvent(kind) }
+    @JvmOverloads
+    fun emit(kind: String, payload: String? = null) {
+        listeners.forEach { it.onPetEvent(kind, payload) }
     }
 }

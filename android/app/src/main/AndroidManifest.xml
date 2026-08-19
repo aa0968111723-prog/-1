@@ -23,15 +23,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/pet_shortcuts" />
         </activity>
 
         <!-- Lightweight transparent bottom-sheet container for pet quick entry.
              Separate task + excludeFromRecents so tapping the pet never drags the
-             full FinTracker task (splash -> dashboard) onto the screen. -->
+             full FinTracker task (splash -> dashboard) onto the screen.
+             Exported so launcher shortcuts can start it directly; it exposes no
+             data and only writes to the outbox on explicit user interaction. -->
         <activity
             android:name=".pet.QuickAddActivity"
             android:theme="@style/PetQuickAddTheme"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
             android:taskAffinity="com.fintracker.app.quickadd"
@@ -79,4 +84,5 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 </manifest>

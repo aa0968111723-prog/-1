@@ -11,7 +11,9 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:background="@drawable/quick_add_sheet_bg"
-        android:padding="20dp">
+        android:paddingHorizontal="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -25,17 +27,18 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="@string/pet_quick_add_title"
-                android:textColor="#5C5248"
+                android:textColor="@color/pet_text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/quick_add_close"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="8dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:gravity="center"
+                android:contentDescription="@string/pet_close"
                 android:text="✕"
-                android:textColor="#82786D"
+                android:textColor="@color/pet_text_secondary"
                 android:textSize="16sp" />
         </LinearLayout>
 
@@ -43,7 +46,7 @@
             android:id="@+id/type_toggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal"
             android:background="@drawable/quick_add_toggle_bg"
             android:padding="4dp">
@@ -54,9 +57,10 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:minHeight="44dp"
                 android:paddingVertical="8dp"
                 android:text="@string/pet_type_expense"
-                android:textColor="#5C5248"
+                android:textColor="@color/pet_text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
@@ -66,9 +70,10 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:minHeight="44dp"
                 android:paddingVertical="8dp"
                 android:text="@string/pet_type_income"
-                android:textColor="#82786D"
+                android:textColor="@color/pet_text_secondary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -76,7 +81,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/quick_add_field_bg"
@@ -85,8 +90,9 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
                 android:text="NT$"
-                android:textColor="#82786D"
+                android:textColor="@color/pet_text_secondary"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
@@ -97,12 +103,15 @@
                 android:layout_marginStart="8dp"
                 android:background="@android:color/transparent"
                 android:hint="@string/pet_amount_hint"
+                android:contentDescription="@string/pet_amount_label"
+                android:imeOptions="actionDone"
                 android:importantForAutofill="no"
                 android:inputType="numberDecimal"
                 android:maxLength="10"
-                android:paddingVertical="14dp"
-                android:textColor="#5C5248"
-                android:textColorHint="#B5AC9F"
+                android:minHeight="56dp"
+                android:paddingVertical="12dp"
+                android:textColor="@color/pet_text_primary"
+                android:textColorHint="@color/pet_text_hint"
                 android:textSize="24sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -111,47 +120,165 @@
             android:id="@+id/category_grid"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:orientation="vertical" />
 
-        <EditText
-            android:id="@+id/note_input"
+        <!-- 支付方式：預設沿用上次，仍可一鍵切換 -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:background="@drawable/quick_add_field_bg"
-            android:hint="@string/pet_note_hint"
-            android:importantForAutofill="no"
-            android:inputType="text"
-            android:maxLength="60"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="10dp"
-            android:textColor="#5C5248"
-            android:textColorHint="#B5AC9F"
-            android:textSize="14sp" />
+            android:scrollbars="none">
 
-        <TextView
-            android:id="@+id/save_button"
+            <LinearLayout
+                android:id="@+id/payment_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <!-- 更多：備註 + 自然語言/語音 -->
+        <LinearLayout
+            android:id="@+id/more_section"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/quick_add_save_bg"
-            android:gravity="center"
-            android:paddingVertical="14dp"
-            android:text="@string/pet_save"
-            android:textColor="#FFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/note_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/quick_add_field_bg"
+                android:hint="@string/pet_note_hint"
+                android:contentDescription="@string/pet_note_hint"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:maxLength="60"
+                android:minHeight="48dp"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="10dp"
+                android:textColor="@color/pet_text_primary"
+                android:textColorHint="@color/pet_text_hint"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/nl_input"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/quick_add_field_bg"
+                    android:hint="@string/pet_nl_hint"
+                    android:contentDescription="@string/pet_nl_label"
+                    android:imeOptions="actionGo"
+                    android:importantForAutofill="no"
+                    android:inputType="text"
+                    android:maxLength="60"
+                    android:minHeight="48dp"
+                    android:paddingHorizontal="16dp"
+                    android:paddingVertical="10dp"
+                    android:textColor="@color/pet_text_primary"
+                    android:textColorHint="@color/pet_text_hint"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/voice_button"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/quick_add_field_bg"
+                    android:contentDescription="@string/pet_voice_label"
+                    android:gravity="center"
+                    android:text="🎙"
+                    android:textSize="20sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/more_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:gravity="center"
+                android:paddingHorizontal="12dp"
+                android:text="@string/pet_more"
+                android:textColor="@color/pet_text_secondary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/save_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/quick_add_save_bg"
+                android:gravity="center"
+                android:minHeight="52dp"
+                android:paddingVertical="14dp"
+                android:text="@string/pet_save"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/fast_mode_hint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="6dp"
             android:gravity="center"
             android:text="@string/pet_fast_mode_hint"
-            android:textColor="#82786D"
+            android:textColor="@color/pet_text_secondary"
             android:textSize="11sp"
             android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 快速模式誤按保險：儲存後的短暫復原列 -->
+    <LinearLayout
+        android:id="@+id/undo_bar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="32dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/quick_add_undo_bg"
+        android:paddingHorizontal="20dp"
+        android:paddingVertical="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/undo_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/pet_undo_text"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/undo_button"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="16dp"
+            android:gravity="center"
+            android:paddingHorizontal="8dp"
+            android:text="@string/pet_undo"
+            android:textColor="@color/pet_accent"
+            android:textSize="14sp"
+            android:textStyle="bold" />
     </LinearLayout>
 </FrameLayout>

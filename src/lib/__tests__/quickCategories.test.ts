@@ -36,6 +36,22 @@ describe('getQuickCategories', () => {
     expect(chips.map(c => c.category)).toContain('薪資收入');
   });
 
+  it('pinned categories come first, before usage ranking', () => {
+    const txs = [tx('餐飲美食'), tx('餐飲美食'), tx('餐飲美食')];
+    const chips = getQuickCategories(txs, 'expense', NOW, 6, ['health', 'education']);
+    expect(chips[0].categoryId).toBe('health');
+    expect(chips[1].categoryId).toBe('education');
+    expect(chips[2].categoryId).toBe('food');
+  });
+
+  it('every chip carries a stable categoryId matching its label', () => {
+    const chips = getQuickCategories([], 'expense', NOW);
+    for (const chip of chips) {
+      expect(chip.categoryId).toBeTruthy();
+      expect(chip.category).toBeTruthy();
+    }
+  });
+
   it('never exceeds max and never duplicates', () => {
     const txs = ['餐飲美食', '交通出行', '購物消費', '休閒娛樂', '居家生活', '水電網費', '醫療保健']
       .flatMap(c => [tx(c), tx(c)]);
