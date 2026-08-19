@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick add sheet palette (dark). Keeps the warm, low-stimulus mood. -->
+<resources>
+    <color name="pet_sheet_bg">#26221E</color>
+    <color name="pet_field_bg">#33FFFFFF</color>
+    <color name="pet_toggle_bg">#4D3A342E</color>
+    <color name="pet_toggle_selected_bg">#4A423A</color>
+    <color name="pet_chip_bg">#2EFFFFFF</color>
+    <color name="pet_chip_selected_bg">#4087A2B4</color>
+    <color name="pet_text_primary">#EFE7DC</color>
+    <color name="pet_text_secondary">#B8AC9E</color>
+    <color name="pet_text_hint">#8A7F72</color>
+    <color name="pet_accent">#87A2B4</color>
+    <color name="pet_stroke">#1AFFFFFF</color>
+    <color name="pet_undo_bg">#F2EFE7DC</color>
+    <color name="pet_undo_text">#26221E</color>
+</resources>

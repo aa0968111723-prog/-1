@@ -18,6 +18,10 @@ export interface PetSettings {
   /** false = bubble never shows money amounts (privacy mode, default). */
   showAmounts: boolean;
   petName: string;
+  /** Quick add opens with this transaction type. */
+  defaultType: 'expense' | 'income';
+  /** Gate the full finance app behind device credential / biometrics. Quick add stays free. */
+  appLock: boolean;
 }
 
 export const DEFAULT_PET_SETTINGS: PetSettings = {
@@ -29,6 +33,8 @@ export const DEFAULT_PET_SETTINGS: PetSettings = {
   fastMode: false,
   showAmounts: false,
   petName: '小財',
+  defaultType: 'expense',
+  appLock: false,
 };
 
 export function loadPetSettings(storage: Storage | undefined = globalThis.localStorage): PetSettings {

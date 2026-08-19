@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick_expense"
+        android:enabled="true"
+        android:icon="@drawable/ic_pet_notification"
+        android:shortcutShortLabel="@string/pet_quick_expense_shortcut">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.fintracker.app"
+            android:targetClass="com.fintracker.app.pet.QuickAddActivity">
+            <extra android:name="type" android:value="expense" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="quick_income"
+        android:enabled="true"
+        android:icon="@drawable/ic_pet_notification"
+        android:shortcutShortLabel="@string/pet_quick_income_shortcut">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.fintracker.app"
+            android:targetClass="com.fintracker.app.pet.QuickAddActivity">
+            <extra android:name="type" android:value="income" />
+        </intent>
+    </shortcut>
+</shortcuts>

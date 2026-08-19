@@ -92,10 +92,20 @@ export class FinanceRepository {
    * Adds a transaction directly to storage (used by tests and non-React
    * callers). The React app applies the identical rules through App state;
    * both paths share applyLinkedEffects so debt/goal integration never forks.
+   *
+   * Idempotent on id: re-ingesting a transaction whose stable id already
+   * exists (e.g. a native outbox entry replayed after a crash-before-ack)
+   * returns the existing record and changes nothing — exactly-once semantics
+   * for the sync path.
    */
   addTransaction(newTx: Omit<Transaction, 'id'> & { id?: string }): Transaction {
+    const existingList = this.getTransactions();
+    if (newTx.id) {
+      const existing = existingList.find(t => t.id === newTx.id);
+      if (existing) return existing;
+    }
     const transaction: Transaction = { ...newTx, id: newTx.id ?? crypto.randomUUID() };
-    this.saveTransactions([transaction, ...this.getTransactions()]);
+    this.saveTransactions([transaction, ...existingList]);
 
     const { debts, goals } = applyLinkedEffects(transaction, this.getDebts(), this.getGoals());
     this.saveDebts(debts);

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick add sheet palette (light). Mirrors FinTracker's warm off-white look. -->
+<resources>
+    <color name="pet_sheet_bg">#FAF6F0</color>
+    <color name="pet_field_bg">#B3FFFFFF</color>
+    <color name="pet_toggle_bg">#80EAE4DB</color>
+    <color name="pet_toggle_selected_bg">#FFFFFF</color>
+    <color name="pet_chip_bg">#99FFFFFF</color>
+    <color name="pet_chip_selected_bg">#2687A2B4</color>
+    <color name="pet_text_primary">#5C5248</color>
+    <color name="pet_text_secondary">#82786D</color>
+    <color name="pet_text_hint">#B5AC9F</color>
+    <color name="pet_accent">#87A2B4</color>
+    <color name="pet_stroke">#0D000000</color>
+    <color name="pet_undo_bg">#F25C5248</color>
+    <color name="pet_undo_text">#FAF6F0</color>
+</resources>

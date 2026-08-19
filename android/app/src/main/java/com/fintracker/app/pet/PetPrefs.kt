@@ -59,6 +59,16 @@ class PetPrefs(context: Context) {
         get() = prefs.getString(KEY_LAST_PAYMENT, "cash") ?: "cash"
         set(value) = prefs.edit().putString(KEY_LAST_PAYMENT, value).apply()
 
+    /** Usage-ranked quick chips synced from the web layer ({expense:[...],income:[...]}). */
+    var syncedQuickChipsJson: String?
+        get() = prefs.getString(KEY_QUICK_CHIPS, null)
+        set(value) = prefs.edit().putString(KEY_QUICK_CHIPS, value).apply()
+
+    /** Millis timestamp of the last successful web drain ack (debug/health info). */
+    var lastSyncAt: Long
+        get() = prefs.getLong(KEY_LAST_SYNC, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_SYNC, value).apply()
+
     companion object {
         const val PREFS_NAME = "finance_pet_prefs"
         private const val KEY_ENABLED = "pet_enabled"
@@ -68,6 +78,8 @@ class PetPrefs(context: Context) {
         private const val KEY_POS_Y = "pet_pos_y"
         private const val KEY_POS_EDGE = "pet_pos_edge"
         private const val KEY_LAST_PAYMENT = "pet_last_payment"
+        private const val KEY_QUICK_CHIPS = "pet_quick_chips"
+        private const val KEY_LAST_SYNC = "pet_last_sync_at"
     }
 }
 

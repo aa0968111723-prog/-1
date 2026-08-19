@@ -17,8 +17,9 @@ import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X } fro
 import { cn } from './lib/utils';
 import { loadPetSettings, savePetSettings, PetSettings as PetSettingsType } from './lib/petSettings';
 import { FinancePet, isNativePetAvailable, pendingToTransaction } from './lib/petBridge';
-import { computePetFinanceState } from './lib/petFinanceState';
+import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { applyLinkedEffects } from './lib/financeRepository';
+import { getQuickCategories } from './lib/quickCategories';
 
 type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor' | 'spreadsheet' | 'pet';
 
@@ -27,6 +28,11 @@ export default function App() {
   const [isGlobalAddOpen, setIsGlobalAddOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [petSettings, setPetSettings] = useState<PetSettingsType>(() => loadPetSettings());
+  // 快速記帳誤按保險：短暫顯示可復原的提示
+  const [undoInfo, setUndoInfo] = useState<{ id: string; label: string } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // App Lock：進完整財務資料前的裝置驗證（快速記帳不受影響）
+  const [locked, setLocked] = useState<boolean>(() => isNativePetAvailable() && loadPetSettings().appLock);
   
   const [monthlyIncome, setMonthlyIncome] = useState<number>(() => {
     const saved = localStorage.getItem('finance_monthly_income');
@@ -177,7 +183,7 @@ export default function App() {
     }
   }, [recurring]);
 
-  const addTransaction = (newTx: Omit<Transaction, 'id'>) => {
+  const addTransaction = (newTx: Omit<Transaction, 'id'>): Transaction => {
     const transaction = {
       ...newTx,
       id: crypto.randomUUID(),
@@ -195,12 +201,28 @@ export default function App() {
 
     // Handle Deep Integration: Add to linked goal
     if (newTx.linkedGoalId && newTx.amount > 0) {
-      setGoals(prev => prev.map(goal => 
-        goal.id === newTx.linkedGoalId 
-          ? { ...goal, currentAmount: goal.currentAmount + newTx.amount } 
+      setGoals(prev => prev.map(goal =>
+        goal.id === newTx.linkedGoalId
+          ? { ...goal, currentAmount: goal.currentAmount + newTx.amount }
           : goal
       ));
     }
+    return transaction;
+  };
+
+  /** Quick-add entry point: same addTransaction plus a short undo window. */
+  const addQuickTransaction = (newTx: Omit<Transaction, 'id'>) => {
+    const tx = addTransaction(newTx);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoInfo({ id: tx.id, label: `NT$${tx.amount.toLocaleString()} ${tx.category}` });
+    undoTimerRef.current = setTimeout(() => setUndoInfo(null), 5000);
+  };
+
+  const undoQuickTransaction = () => {
+    if (!undoInfo) return;
+    deleteTransaction(undoInfo.id);
+    setUndoInfo(null);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   };
 
   // Ids already imported from the native queue this session (guards against
@@ -257,7 +279,13 @@ export default function App() {
       // QuickAddActivity (it works even when the WebView is dead), so the
       // web layer only reacts to sync + navigation events.
       if (event.kind === 'transactionQueued') drainPending();
-      else if (event.kind === 'openDashboardRequested') {
+      else if (event.kind === 'transactionUndone' && event.id) {
+        // The user undid a native quick add within the undo window; if we
+        // already drained it, remove the same id here too.
+        const undoneId = event.id;
+        setTransactions(prev => prev.filter(t => t.id !== undoneId));
+        importedNativeIds.current.delete(undoneId);
+      } else if (event.kind === 'openDashboardRequested') {
         setFinanceTab('overview');
       } else if (event.kind === 'openPetSettingsRequested') {
         setFinanceTab('pet');
@@ -276,8 +304,10 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Push the computed pet finance state to the native overlay (debounced).
-  // Native never recomputes finance logic — it only renders this result.
+  // Push the computed pet display state to the native overlay (debounced).
+  // Native never recomputes finance logic and never receives raw finance
+  // data — only the trimmed, non-sensitive PetDisplayState plus the
+  // usage-ranked quick chips for its Quick Add sheet.
   useEffect(() => {
     if (!isNativePetAvailable()) return;
     const timer = setTimeout(() => {
@@ -289,11 +319,32 @@ export default function App() {
         showAmounts: petSettings.showAmounts,
       });
       FinancePet.updatePetState({
-        state: { ...state, showAmounts: petSettings.showAmounts, petName: petSettings.petName },
+        state: toPetDisplayState(state, { showAmounts: petSettings.showAmounts, petName: petSettings.petName }),
+      }).catch(() => {});
+      FinancePet.syncQuickCategories({
+        chips: {
+          expense: getQuickCategories(transactions, 'expense'),
+          income: getQuickCategories(transactions, 'income'),
+        },
       }).catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
   }, [transactions, budgets, goals, monthlyIncome, petSettings.showAmounts, petSettings.petName]);
+
+  // App Lock：驗證通過才顯示完整財務資料（快速記帳流程不受影響）
+  useEffect(() => {
+    if (!locked) return;
+    let cancelled = false;
+    FinancePet.authenticate()
+      .then(r => {
+        if (!cancelled && r.success) setLocked(false);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const deleteTransaction = (id: string) => {
     // Handle Deep Integration Reversal before deleting
@@ -569,10 +620,45 @@ export default function App() {
             <QuickTransactionForm
               transactions={transactions}
               fastMode={petSettings.fastMode}
-              onAddTransaction={addTransaction}
+              defaultType={petSettings.defaultType}
+              onAddTransaction={addQuickTransaction}
               onSaved={() => setIsQuickAddOpen(false)}
             />
           </div>
+        </div>
+      )}
+
+      {/* 快速記帳復原提示 */}
+      {undoInfo && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 bg-[#5C5248]/95 text-[#FAF6F0] px-5 py-2.5 rounded-full shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <span className="text-sm font-bold">🐣 已記錄 {undoInfo.label}</span>
+          <button
+            onClick={undoQuickTransaction}
+            className="text-sm font-extrabold text-[#A8C3D4] hover:text-white transition-colors py-1 px-2"
+          >
+            復原
+          </button>
+        </div>
+      )}
+
+      {/* App Lock 覆蓋層：驗證通過前不顯示財務資料 */}
+      {locked && (
+        <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-5 bg-[#FAF6F0]">
+          <div className="text-6xl">🔒</div>
+          <p className="font-extrabold text-[#5C5248] text-lg">FinTracker 已鎖定</p>
+          <p className="text-sm text-[#82786D] font-bold">驗證後查看完整財務資料</p>
+          <button
+            onClick={() => {
+              FinancePet.authenticate()
+                .then(r => {
+                  if (r.success) setLocked(false);
+                })
+                .catch(() => {});
+            }}
+            className="px-8 py-3 rounded-2xl font-extrabold bg-[#87A2B4] text-white hover:bg-[#87A2B4]/90 transition-all active:scale-[0.98]"
+          >
+            解鎖
+          </button>
         </div>
       )}
 

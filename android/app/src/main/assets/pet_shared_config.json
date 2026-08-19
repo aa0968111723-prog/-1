@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "categories": {
+    "expense": [
+      { "id": "food", "label": "餐飲美食", "emoji": "🍱" },
+      { "id": "transport", "label": "交通出行", "emoji": "🚌" },
+      { "id": "entertainment", "label": "休閒娛樂", "emoji": "🎮" },
+      { "id": "shopping", "label": "購物消費", "emoji": "🛍️" },
+      { "id": "home", "label": "居家生活", "emoji": "🏠" },
+      { "id": "utilities", "label": "水電網費", "emoji": "💡" },
+      { "id": "health", "label": "醫療保健", "emoji": "💊" },
+      { "id": "education", "label": "學習進修", "emoji": "📚" },
+      { "id": "debt", "label": "負債償還", "emoji": "💳" },
+      { "id": "other_expense", "label": "其他支出", "emoji": "📦" }
+    ],
+    "income": [
+      { "id": "salary", "label": "薪資收入", "emoji": "💰" },
+      { "id": "investment", "label": "投資理財", "emoji": "📈" },
+      { "id": "bonus", "label": "零星獎金", "emoji": "🧧" },
+      { "id": "other_income", "label": "其他收入", "emoji": "✨" }
+    ]
+  },
+  "legacyLabelAliases": {
+    "Loan Repayments": "debt",
+    "Investments": "investment"
+  },
+  "quickChips": {
+    "expense": [
+      { "categoryId": "food", "label": "餐飲", "emoji": "🍱" },
+      { "categoryId": "food", "label": "飲料", "emoji": "🥤", "note": "飲料" },
+      { "categoryId": "transport", "label": "交通", "emoji": "🚌" },
+      { "categoryId": "shopping", "label": "購物", "emoji": "🛍️" },
+      { "categoryId": "entertainment", "label": "娛樂", "emoji": "🎮" },
+      { "categoryId": "other_expense", "label": "其他", "emoji": "📦" }
+    ],
+    "income": [
+      { "categoryId": "salary", "label": "薪資", "emoji": "💰" },
+      { "categoryId": "bonus", "label": "獎金", "emoji": "🧧" },
+      { "categoryId": "investment", "label": "投資", "emoji": "📈" },
+      { "categoryId": "other_income", "label": "其他", "emoji": "✨" }
+    ]
+  },
+  "paymentMethods": [
+    { "id": "cash", "label": "現金" },
+    { "id": "credit", "label": "信用卡" },
+    { "id": "bank", "label": "銀行轉帳" },
+    { "id": "mobile", "label": "行動支付" }
+  ],
+  "parser": {
+    "expenseKeywords": {
+      "food": ["早餐", "午餐", "晚餐", "宵夜", "便當", "吃飯", "聚餐", "飯", "麵", "壽司", "火鍋", "餐廳", "小吃", "滷味", "雞排", "飲料", "手搖", "咖啡", "奶茶", "珍奶", "紅茶", "綠茶", "拿鐵", "星巴克", "吃"],
+      "transport": ["捷運", "公車", "客運", "火車", "高鐵", "計程車", "Uber", "uber", "加油", "油錢", "停車", "機車", "通勤", "車票", "交通"],
+      "shopping": ["購物", "網購", "蝦皮", "淘寶", "衣服", "鞋子", "包包", "買"],
+      "entertainment": ["電影", "遊戲", "課金", "KTV", "ktv", "唱歌", "娛樂", "訂閱", "Netflix", "netflix", "Spotify", "spotify"],
+      "home": ["日用品", "衛生紙", "洗衣", "家具", "房租", "租金"],
+      "utilities": ["水費", "電費", "瓦斯", "網路費", "電話費", "手機費"],
+      "health": ["看醫生", "掛號", "藥", "診所", "醫院", "保健"],
+      "education": ["書", "課程", "補習", "學費", "文具"]
+    },
+    "incomeKeywords": {
+      "salary": ["薪水", "薪資", "月薪", "發薪"],
+      "bonus": ["獎金", "紅包", "中獎", "回饋"],
+      "investment": ["股息", "配息", "利息", "投資獲利"],
+      "other_income": ["收入", "入帳", "退款", "賣"]
+    },
+    "paymentKeywords": {
+      "mobile": ["悠遊卡", "一卡通", "LinePay", "linepay", "Line Pay", "街口", "Apple Pay", "applepay", "行動支付"],
+      "credit": ["刷卡", "信用卡"],
+      "bank": ["轉帳", "匯款"],
+      "cash": ["現金", "付現"]
+    }
+  }
+}

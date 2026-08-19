@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseQuickEntry } from '../quickParser';
+import { parseQuickEntry, parseChineseNumber } from '../quickParser';
 
 describe('parseQuickEntry', () => {
   it('parses 午餐120 into a high-confidence food expense', () => {
@@ -50,5 +50,33 @@ describe('parseQuickEntry', () => {
     const r = parseQuickEntry('晚餐300刷卡');
     expect(r.paymentMethod).toBe('credit');
     expect(r.category).toBe('餐飲美食');
+  });
+
+  it('parses spoken Chinese amounts (語音記帳)', () => {
+    const r = parseQuickEntry('午餐一百二十塊');
+    expect(r.amount).toBe(120);
+    expect(r.category).toBe('餐飲美食');
+    expect(r.confidence).toBe('high');
+  });
+
+  it('parses income phrasing 薪水35000', () => {
+    const r = parseQuickEntry('薪水35000');
+    expect(r.type).toBe('income');
+    expect(r.amount).toBe(35000);
+    expect(r.category).toBe('薪資收入');
+  });
+});
+
+describe('parseChineseNumber', () => {
+  it('handles common spoken amounts', () => {
+    expect(parseChineseNumber('一百二十')).toBe(120);
+    expect(parseChineseNumber('兩百五')).toBe(250);
+    expect(parseChineseNumber('十五')).toBe(15);
+    expect(parseChineseNumber('三千')).toBe(3000);
+    expect(parseChineseNumber('一萬二千')).toBe(12000);
+  });
+
+  it('returns null for non-numeric text', () => {
+    expect(parseChineseNumber('午餐')).toBeNull();
   });
 });

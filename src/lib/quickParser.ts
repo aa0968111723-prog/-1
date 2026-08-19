@@ -2,12 +2,16 @@
  * Deterministic natural-language quick-entry parser.
  *
  * Turns strings like「午餐120」or「捷運50悠遊卡」into a transaction draft
- * using regex + keyword maps only. No AI call is involved; AI is reserved
- * as an optional fallback the caller may layer on top when this parser
- * reports low confidence.
+ * using regex + keyword maps only. The keyword maps live in
+ * shared/pet-shared-config.json — the exact same config the Android quick
+ * add ships as an asset — so web and native never drift. No AI call is
+ * involved; AI is reserved as an optional fallback the caller may layer on
+ * top when this parser reports low confidence.
  */
 
-import { TransactionType, PaymentMethod, CATEGORIES } from '../types';
+import sharedConfig from '../../shared/pet-shared-config.json';
+import { TransactionType, PaymentMethod } from '../types';
+import { labelForCategoryId } from './categoryCatalog';
 
 export interface ParsedQuickEntry {
   type: TransactionType;
@@ -19,79 +23,92 @@ export interface ParsedQuickEntry {
   confidence: 'high' | 'medium' | 'low';
 }
 
-const EXPENSE_KEYWORDS: Array<{ category: string; words: string[] }> = [
-  { category: '餐飲美食', words: ['早餐', '午餐', '晚餐', '宵夜', '便當', '吃飯', '聚餐', '飯', '麵', '壽司', '火鍋', '餐廳', '小吃', '滷味', '雞排', '飲料', '手搖', '咖啡', '奶茶', '珍奶', '紅茶', '綠茶', '拿鐵', '星巴克', '吃'] },
-  { category: '交通出行', words: ['捷運', '公車', '客運', '火車', '高鐵', '計程車', 'Uber', 'uber', '加油', '油錢', '停車', '機車', '通勤', '車票', '交通'] },
-  { category: '購物消費', words: ['購物', '網購', '蝦皮', '淘寶', '衣服', '鞋子', '包包', '買'] },
-  { category: '休閒娛樂', words: ['電影', '遊戲', '課金', 'KTV', 'ktv', '唱歌', '娛樂', '訂閱', 'Netflix', 'netflix', 'Spotify', 'spotify'] },
-  { category: '居家生活', words: ['日用品', '衛生紙', '洗衣', '家具', '房租', '租金'] },
-  { category: '水電網費', words: ['水費', '電費', '瓦斯', '網路費', '電話費', '手機費'] },
-  { category: '醫療保健', words: ['看醫生', '掛號', '藥', '診所', '醫院', '保健'] },
-  { category: '學習進修', words: ['書', '課程', '補習', '學費', '文具'] },
-];
-
-const INCOME_KEYWORDS: Array<{ category: string; words: string[] }> = [
-  { category: '薪資收入', words: ['薪水', '薪資', '月薪', '發薪'] },
-  { category: '零星獎金', words: ['獎金', '紅包', '中獎', '回饋'] },
-  { category: '投資理財', words: ['股息', '配息', '利息', '投資獲利'] },
-  { category: '其他收入', words: ['收入', '入帳', '退款', '賣'] },
-];
-
-const PAYMENT_KEYWORDS: Array<{ method: PaymentMethod; words: string[] }> = [
-  { method: 'mobile', words: ['悠遊卡', '一卡通', 'LinePay', 'linepay', 'Line Pay', '街口', 'Apple Pay', 'applepay', '行動支付'] },
-  { method: 'credit', words: ['刷卡', '信用卡'] },
-  { method: 'bank', words: ['轉帳', '匯款'] },
-  { method: 'cash', words: ['現金', '付現'] },
-];
+const EXPENSE_KEYWORDS: Record<string, string[]> = sharedConfig.parser.expenseKeywords;
+const INCOME_KEYWORDS: Record<string, string[]> = sharedConfig.parser.incomeKeywords;
+const PAYMENT_KEYWORDS: Record<string, string[]> = sharedConfig.parser.paymentKeywords;
 
 /** Matches the first standalone number, with optional thousands commas / decimals. */
 const AMOUNT_RE = /(?:NT\$|\$|nt\$)?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(?:元|塊|圓)?/;
+
+/** 中文數字金額，例：一百二十、兩百五、三千。語音輸入常見。 */
+const CN_DIGITS: Record<string, number> = { 零: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+const CN_UNITS: Record<string, number> = { 十: 10, 百: 100, 千: 1000, 萬: 10000 };
+const CN_AMOUNT_RE = /([零一二兩三四五六七八九十百千萬]{1,10})\s*(?:元|塊|圓)/;
+
+export function parseChineseNumber(text: string): number | null {
+  let total = 0;
+  let current = 0;
+  let sawAny = false;
+  for (const ch of text) {
+    if (ch in CN_DIGITS) {
+      current = CN_DIGITS[ch];
+      sawAny = true;
+    } else if (ch in CN_UNITS) {
+      const unit = CN_UNITS[ch];
+      if (current === 0) current = 1; // 十 = 10, 百五 handled below
+      if (unit === 10000) {
+        total = (total + current) * unit;
+      } else {
+        total += current * unit;
+      }
+      current = 0;
+      sawAny = true;
+    } else {
+      return null;
+    }
+  }
+  if (!sawAny) return null;
+  // trailing digit like 兩百五 -> 250: scale by last unit / 10 heuristic
+  if (current > 0 && total >= 100 && total % 100 === 0) {
+    total += current * (total >= 1000 ? 100 : 10);
+  } else {
+    total += current;
+  }
+  return total > 0 ? total : null;
+}
+
+function matchKeyword(map: Record<string, string[]>, text: string): string | null {
+  for (const [categoryId, words] of Object.entries(map)) {
+    if (words.some(w => text.includes(w))) return categoryId;
+  }
+  return null;
+}
 
 export function parseQuickEntry(input: string): ParsedQuickEntry {
   const text = input.trim();
 
   let amount: number | null = null;
-  const amountMatch = text.match(AMOUNT_RE);
   let noteText = text;
+  const amountMatch = text.match(AMOUNT_RE);
   if (amountMatch) {
     amount = Number(amountMatch[1].replace(/,/g, ''));
     if (!Number.isFinite(amount) || amount <= 0) amount = null;
     else noteText = (text.slice(0, amountMatch.index) + ' ' + text.slice((amountMatch.index ?? 0) + amountMatch[0].length)).trim();
   }
-
-  let paymentMethod: PaymentMethod | undefined;
-  for (const { method, words } of PAYMENT_KEYWORDS) {
-    const hit = words.find(w => noteText.includes(w));
-    if (hit) {
-      paymentMethod = method;
-      break;
-    }
-  }
-
-  let type: TransactionType = 'expense';
-  let category = '';
-  for (const { category: cat, words } of INCOME_KEYWORDS) {
-    if (words.some(w => noteText.includes(w))) {
-      type = 'income';
-      category = cat;
-      break;
-    }
-  }
-  if (!category) {
-    for (const { category: cat, words } of EXPENSE_KEYWORDS) {
-      if (words.some(w => noteText.includes(w))) {
-        category = cat;
-        break;
+  if (amount === null) {
+    const cnMatch = text.match(CN_AMOUNT_RE);
+    if (cnMatch) {
+      amount = parseChineseNumber(cnMatch[1]);
+      if (amount !== null) {
+        noteText = (text.slice(0, cnMatch.index) + ' ' + text.slice((cnMatch.index ?? 0) + cnMatch[0].length)).trim();
       }
     }
   }
 
-  const matchedCategory = category !== '';
-  if (!category) category = CATEGORIES.expense[CATEGORIES.expense.length - 1] === 'Loan Repayments'
-    ? '其他支出'
-    : CATEGORIES.expense[0];
-  if (!matchedCategory) category = '其他支出';
+  let paymentMethod: PaymentMethod | undefined;
+  const paymentId = matchKeyword(PAYMENT_KEYWORDS, noteText);
+  if (paymentId) paymentMethod = paymentId as PaymentMethod;
 
+  let type: TransactionType = 'expense';
+  let categoryId = matchKeyword(INCOME_KEYWORDS, noteText);
+  if (categoryId) {
+    type = 'income';
+  } else {
+    categoryId = matchKeyword(EXPENSE_KEYWORDS, noteText);
+  }
+
+  const matchedCategory = categoryId !== null;
+  const category = labelForCategoryId(categoryId ?? 'other_expense');
   const note = noteText.replace(/\s+/g, ' ').trim();
 
   let confidence: ParsedQuickEntry['confidence'] = 'low';

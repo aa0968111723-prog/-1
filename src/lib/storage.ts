@@ -17,7 +17,10 @@ export const STORAGE_KEYS = {
   monthlyIncome: 'finance_monthly_income',
   txDefaults: 'fintracker_tx_defaults',
   petSettings: 'finance_pet_settings',
+  pinnedCategories: 'finance_pinned_categories',
   storageVersion: 'finance_storage_version',
+  migrationLog: 'finance_migration_log',
+  importSafetyBackup: 'finance_backup_before_import',
 } as const;
 
 export const CURRENT_STORAGE_VERSION = 1;
@@ -113,7 +116,25 @@ export function runStorageMigration(storage: Storage | undefined = globalThis.lo
   // Future migrations chain here: if (fromVersion < 2) { ... }
 
   storage.setItem(STORAGE_KEYS.storageVersion, String(CURRENT_STORAGE_VERSION));
+  appendMigrationLog(storage, result);
   return result;
+}
+
+/** Append-only, size-bounded log so migration history is auditable. */
+function appendMigrationLog(storage: Storage, result: MigrationResult): void {
+  try {
+    const log = loadJSON<unknown[]>(STORAGE_KEYS.migrationLog, [], storage);
+    const entries = Array.isArray(log) ? log : [];
+    entries.push({
+      at: new Date().toISOString(),
+      from: result.fromVersion,
+      to: result.toVersion,
+      repairedKeys: result.repairedKeys,
+    });
+    saveJSON(STORAGE_KEYS.migrationLog, entries.slice(-20), storage);
+  } catch {
+    // logging must never block a migration
+  }
 }
 
 export function loadJSON<T>(key: string, fallback: T, storage: Storage | undefined = globalThis.localStorage): T {

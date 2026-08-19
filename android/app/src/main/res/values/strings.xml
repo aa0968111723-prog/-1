@@ -15,6 +15,17 @@
     <string name="pet_amount_required">先輸入金額哦</string>
     <string name="pet_category_required">選一個分類就完成囉</string>
     <string name="pet_fast_mode_hint">⚡ 快速模式：輸入金額後點分類直接記帳</string>
+    <string name="pet_close">關閉</string>
+    <string name="pet_amount_label">金額</string>
+    <string name="pet_more">更多</string>
+    <string name="pet_nl_hint">快速說：午餐120</string>
+    <string name="pet_nl_label">自然語言記帳</string>
+    <string name="pet_voice_label">語音記帳</string>
+    <string name="pet_undo">復原</string>
+    <string name="pet_voice_unavailable">此裝置沒有可用的語音辨識</string>
+    <string name="pet_quick_expense_shortcut">快速支出</string>
+    <string name="pet_quick_income_shortcut">快速收入</string>
+    <string name="pet_notification_add">記一筆</string>
     <string name="pet_restore_notification_title">🐣 小財想回來陪你</string>
     <string name="pet_restore_notification_text">點一下重新開啟桌寵</string>
 </resources>
