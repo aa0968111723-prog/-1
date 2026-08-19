@@ -158,6 +158,34 @@ class QuickAddActivity : AppCompatActivity() {
     }
 
     /**
+     * The pet overlay floats above this sheet and stays tappable, so a second
+     * tap re-launches us. launchMode is singleTop, so that arrives here rather
+     * than in onCreate, and without this the new intent's 收入/支出 choice and
+     * 語音 flag would be silently dropped.
+     *
+     * The platform pauses a resumed activity before delivering a new intent,
+     * and onPause() below finishes this sheet — so in the common case we are
+     * already finishing by the time we get here and must not re-arm a sheet
+     * that is about to be destroyed (least of all launch the recognizer from
+     * it). The second tap then simply dismisses, and the next one opens a
+     * fresh sheet with the right extras.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (isFinishing) return
+        undoBar.removeCallbacks(finishRunnable)
+        undoBar.visibility = View.GONE
+        sheet.visibility = View.VISIBLE
+        // The undo window for the previous entry is over, and this is a fresh
+        // request: start from a clean draft rather than the last one's leftovers.
+        lastSavedId = null
+        clearDraft()
+        setType(intent.getStringExtra(EXTRA_TYPE) ?: type)
+        if (intent.getBooleanExtra(EXTRA_VOICE, false)) startVoiceInput() else amountInput.requestFocus()
+    }
+
+    /**
      * Dismiss when the user leaves (Home, another app) so no invisible sheet
      * lingers in its own task. Deliberately NOT android:noHistory, which would
      * also kill us while the speech recognizer is in front and lose the result.
@@ -452,13 +480,22 @@ class QuickAddActivity : AppCompatActivity() {
         PetActionBridge.emit(PetActionBridge.EVENT_TRANSACTION_UNDONE, id)
         undoBar.visibility = View.GONE
         sheet.visibility = View.VISIBLE
+        clearDraft()
+        amountInput.requestFocus()
+    }
+
+    /**
+     * Everything that described one entry: the fields the user typed and the
+     * values the parser derived from them. A parsed 昨天/8-17 or 刷卡 belongs to
+     * that entry alone and must never carry over into the next one.
+     */
+    private fun clearDraft() {
         amountInput.setText("")
-        // A parsed 昨天/8-17 belonged to the entry just undone; the next one
-        // is today's again unless the user says otherwise.
+        noteInput.setText("")
+        nlInput.setText("")
         parsedDateKey = null
         parsedPaymentOverride = null
         entrySource = "pet_quick_add"
-        amountInput.requestFocus()
     }
 
     private fun formatAmount(v: Double): String =
