@@ -1,8 +1,31 @@
 import { useState, useEffect, useRef } from 'react';
-import { PetSettings as PetSettingsType, PetSize, PetEdge, PetAutoCollapse, PetAnimationLevel } from '../lib/petSettings';
+import {
+  PetSettings as PetSettingsType,
+  PetSize,
+  PetEdge,
+  PetAutoCollapse,
+  PetAnimationLevel,
+  PetOpacity,
+  PetBubbleDisplay,
+  bubbleShowsAmounts,
+} from '../lib/petSettings';
 import { FinancePet, isNativePetAvailable, PetStatus, PetDebugInfo } from '../lib/petBridge';
 import { createBackup, validateBackup, applyBackup, FinanceBackup, BackupValidation } from '../lib/backup';
-import { CATEGORY_DEFS } from '../lib/categoryCatalog';
+import {
+  listCategories,
+  loadCustomCategories,
+  addCustomCategory,
+  removeCustomCategory,
+  CustomCategory,
+} from '../lib/categoryRegistry';
+import {
+  ALL_PAYMENT_METHODS,
+  loadPaymentPrefs,
+  togglePaymentMethod,
+  movePaymentMethod,
+  paymentMethodLabel,
+  PaymentMethodPrefs,
+} from '../lib/paymentMethods';
 import { loadPinnedCategoryIds } from '../lib/quickCategories';
 import { STORAGE_KEYS, saveJSON } from '../lib/storage';
 import { cn } from '../lib/utils';
@@ -63,6 +86,13 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pinned, setPinned] = useState<string[]>(() => loadPinnedCategoryIds());
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(() => loadCustomCategories());
+  const [newCategoryLabel, setNewCategoryLabel] = useState('');
+  const [newCategoryEmoji, setNewCategoryEmoji] = useState('🏷️');
+  const [newCategoryType, setNewCategoryType] = useState<'expense' | 'income'>('expense');
+  const [categoryError, setCategoryError] = useState('');
+  const [paymentPrefs, setPaymentPrefs] = useState<PaymentMethodPrefs>(() => loadPaymentPrefs());
+  const expenseCategories = listCategories('expense');
   const [importPreview, setImportPreview] = useState<{ backup: FinanceBackup; validation: BackupValidation } | null>(null);
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -276,6 +306,16 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
           ]}
           onSelect={v => update({ animation: v })}
         />
+        <OptionRow<PetOpacity>
+          label="透明度"
+          value={settings.opacity}
+          options={[
+            { value: '100', label: '100%' },
+            { value: '85', label: '85%' },
+            { value: '70', label: '70%' },
+          ]}
+          onSelect={v => update({ opacity: v })}
+        />
         <div className="flex items-center justify-between gap-3 py-3">
           <span className="text-sm font-bold text-[#5C5248] shrink-0">桌寵名稱</span>
           <input
@@ -308,10 +348,10 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
           ]}
           onSelect={v => update({ fastMode: v === 'fast' })}
         />
-        <div className="py-3">
+        <div className="py-3 border-b border-black/5">
           <p className="text-sm font-bold text-[#5C5248] mb-2">釘選常用分類（最多 4 個，會排在最前面）</p>
           <div className="flex flex-wrap gap-2">
-            {CATEGORY_DEFS.expense.map(def => (
+            {expenseCategories.map(def => (
               <button
                 key={def.id}
                 type="button"
@@ -328,18 +368,153 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
             ))}
           </div>
         </div>
+
+        {/* 自訂分類 */}
+        <div className="py-3 border-b border-black/5">
+          <p className="text-sm font-bold text-[#5C5248] mb-2">自訂分類</p>
+          {customCategories.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {customCategories.map(c => (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full bg-white/70 border border-black/5 text-[#5C5248]"
+                >
+                  {c.emoji} {c.label}
+                  <span className="text-[10px] text-[#82786D]">{c.type === 'income' ? '收入' : '支出'}</span>
+                  <button
+                    type="button"
+                    aria-label={`刪除 ${c.label}`}
+                    onClick={() => {
+                      removeCustomCategory(c.id);
+                      setCustomCategories(loadCustomCategories());
+                    }}
+                    className="text-[#CD7A70] hover:opacity-70 px-1"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newCategoryEmoji}
+              onChange={e => setNewCategoryEmoji(e.target.value)}
+              maxLength={2}
+              aria-label="分類圖示"
+              className="w-14 px-2 py-2 text-center bg-white/70 border border-black/5 rounded-xl outline-none"
+            />
+            <input
+              type="text"
+              value={newCategoryLabel}
+              onChange={e => setNewCategoryLabel(e.target.value)}
+              placeholder="例如：寵物、旅遊"
+              maxLength={10}
+              aria-label="分類名稱"
+              className="flex-1 px-3 py-2 text-sm bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none"
+            />
+            <select
+              value={newCategoryType}
+              onChange={e => setNewCategoryType(e.target.value as 'expense' | 'income')}
+              aria-label="分類類型"
+              className="px-2 py-2 text-sm bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none"
+            >
+              <option value="expense">支出</option>
+              <option value="income">收入</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                const result = addCustomCategory({
+                  label: newCategoryLabel,
+                  emoji: newCategoryEmoji,
+                  type: newCategoryType,
+                });
+                if (!result.ok) {
+                  setCategoryError(result.error ?? '');
+                  return;
+                }
+                setCategoryError('');
+                setNewCategoryLabel('');
+                setNewCategoryEmoji('🏷️');
+                setCustomCategories(loadCustomCategories());
+              }}
+              className="px-4 py-2 text-sm font-bold rounded-xl bg-[#E2D8C6] text-[#5C5248] active:scale-95 transition-all"
+            >
+              新增
+            </button>
+          </div>
+          {categoryError && <p className="text-xs font-bold text-[#CD7A70] mt-2">{categoryError}</p>}
+          <p className="text-xs text-[#82786D] font-bold mt-2">刪除分類不會更動任何既有交易。</p>
+        </div>
+
+        {/* 支付方式 */}
+        <div className="py-3">
+          <p className="text-sm font-bold text-[#5C5248] mb-2">支付方式（顯示在快速記帳）</p>
+          <div className="flex flex-wrap gap-2">
+            {ALL_PAYMENT_METHODS.map(pm => {
+              const enabled = paymentPrefs.enabled.includes(pm.id);
+              return (
+                <button
+                  key={pm.id}
+                  type="button"
+                  onClick={() => setPaymentPrefs(togglePaymentMethod(pm.id))}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-bold rounded-full border transition-all',
+                    enabled
+                      ? 'bg-[#87A2B4]/15 border-[#87A2B4] text-[#5C5248]'
+                      : 'bg-white/60 border-black/5 text-[#82786D] hover:bg-white',
+                  )}
+                >
+                  {pm.emoji} {pm.label}
+                </button>
+              );
+            })}
+          </div>
+          {paymentPrefs.enabled.length > 1 && (
+            <div className="mt-3 space-y-1">
+              {paymentPrefs.enabled.map((id, index) => (
+                <div key={id} className="flex items-center gap-2 text-xs font-bold text-[#5C5248]">
+                  <span className="w-5 text-[#82786D]">{index + 1}.</span>
+                  <span className="flex-1">{paymentMethodLabel(id)}</span>
+                  <button
+                    type="button"
+                    aria-label={`${paymentMethodLabel(id)} 上移`}
+                    disabled={index === 0}
+                    onClick={() => setPaymentPrefs(movePaymentMethod(id, -1))}
+                    className="px-2 py-1 rounded-lg bg-white/70 border border-black/5 disabled:opacity-30"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`${paymentMethodLabel(id)} 下移`}
+                    disabled={index === paymentPrefs.enabled.length - 1}
+                    onClick={() => setPaymentPrefs(movePaymentMethod(id, 1))}
+                    className="px-2 py-1 rounded-lg bg-white/70 border border-black/5 disabled:opacity-30"
+                  >
+                    ↓
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Section>
 
       {/* 隱私 */}
       <Section title="隱私">
-        <OptionRow
-          label="桌寵訊息"
-          value={settings.showAmounts ? 'show' : 'hide'}
+        <OptionRow<PetBubbleDisplay>
+          label="泡泡顯示"
+          value={settings.bubbleDisplay}
           options={[
-            { value: 'hide', label: '隱藏金額' },
-            { value: 'show', label: '顯示今日支出' },
+            { value: 'text', label: '只有文字' },
+            { value: 'count', label: '今日筆數' },
+            { value: 'todaySpend', label: '今日支出' },
+            { value: 'budget', label: '預算狀態' },
           ]}
-          onSelect={v => update({ showAmounts: v === 'show' })}
+          onSelect={v => update({ bubbleDisplay: v, showAmounts: bubbleShowsAmounts({ bubbleDisplay: v }) })}
         />
         <OptionRow
           label="App 鎖定"
@@ -350,8 +525,19 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
           ]}
           onSelect={v => update({ appLock: v === 'on' })}
         />
+        {settings.appLock && (
+          <OptionRow
+            label="快速記帳"
+            value={settings.quickAddWithoutUnlock ? 'free' : 'locked'}
+            options={[
+              { value: 'free', label: '免解鎖' },
+              { value: 'locked', label: '也要驗證' },
+            ]}
+            onSelect={v => update({ quickAddWithoutUnlock: v === 'free' })}
+          />
+        )}
         <p className="text-xs text-[#82786D] font-bold pt-2">
-          App 鎖定只保護完整財務資料；點桌寵快速記帳不需要驗證。
+          預設隱私模式：桌寵不會在畫面上顯示總資產、負債或帳戶餘額。
         </p>
       </Section>
 

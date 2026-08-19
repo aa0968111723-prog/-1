@@ -13,9 +13,9 @@ import CashflowInference from './components/CashflowInference';
 import TransactionForm from './components/TransactionForm';
 import QuickTransactionForm from './components/QuickTransactionForm';
 import PetSettings from './components/PetSettings';
-import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X } from 'lucide-react';
+import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X, Menu } from 'lucide-react';
 import { cn } from './lib/utils';
-import { loadPetSettings, savePetSettings, PetSettings as PetSettingsType } from './lib/petSettings';
+import { loadPetSettings, savePetSettings, bubbleShowsAmounts, PetSettings as PetSettingsType } from './lib/petSettings';
 import { FinancePet, isNativePetAvailable, pendingToTransaction } from './lib/petBridge';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { financeRepository } from './lib/financeRepository';
@@ -28,6 +28,7 @@ export default function App() {
   const [financeTab, setFinanceTab] = useState<FinanceTabType>('overview');
   const [isGlobalAddOpen, setIsGlobalAddOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [isMoreNavOpen, setIsMoreNavOpen] = useState(false);
   const [petSettings, setPetSettings] = useState<PetSettingsType>(() => loadPetSettings());
   // 快速記帳誤按保險：短暫顯示可復原的提示
   const [undoInfo, setUndoInfo] = useState<{ id: string; label: string } | null>(null);
@@ -321,10 +322,13 @@ export default function App() {
         budgets,
         goals,
         monthlyIncome,
-        showAmounts: petSettings.showAmounts,
+        showAmounts: bubbleShowsAmounts(petSettings),
       });
       FinancePet.updatePetState({
-        state: toPetDisplayState(state, { showAmounts: petSettings.showAmounts, petName: petSettings.petName }),
+        state: toPetDisplayState(state, {
+          showAmounts: bubbleShowsAmounts(petSettings),
+          petName: petSettings.petName,
+        }),
       }).catch(() => {});
       FinancePet.syncQuickCategories({
         chips: {
@@ -334,7 +338,7 @@ export default function App() {
       }).catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
-  }, [transactions, budgets, goals, monthlyIncome, petSettings.showAmounts, petSettings.petName]);
+  }, [transactions, budgets, goals, monthlyIncome, petSettings.bubbleDisplay, petSettings.petName]);
 
   // App Lock：驗證通過才顯示完整財務資料（快速記帳流程不受影響）
   useEffect(() => {
@@ -438,6 +442,15 @@ export default function App() {
     setSpreadsheetRecords(prev => prev.filter(r => r.id !== id));
   };
 
+  /** One non-sensitive line for the home card: how today is going. */
+  const petStatusLine = useMemo(() => {
+    const today = getLocalDateKey();
+    const count = transactions.filter(t => t.date === today).length;
+    const name = petSettings.petName || '小財';
+    if (count === 0) return `${name}正在陪你 · 今天還沒記帳`;
+    return `${name}正在陪你 · 今天已記 ${count} 筆`;
+  }, [transactions, petSettings.petName]);
+
   const timeGreeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour < 5) return '夜深了，早點休息哦 🌙';
@@ -449,7 +462,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen font-sans pb-20 lg:pb-0">
+    <div className="min-h-screen font-sans pb-28 sm:pb-0">
       {/* Navbar */}
       <nav className="glass border-none rounded-none sticky top-0 z-10 p-0 shadow-[0_2px_20px_rgba(180,170,160,0.1)] border-b border-t-0 border-x-0 border-black/5" style={{ borderRadius: 0 }}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -465,7 +478,8 @@ export default function App() {
             </div>
             
             {/* Primary Navigation */}
-            <div className="flex items-center bg-[#F5EFEB]/50 p-1.5 rounded-2xl border border-black/5 shadow-inner overflow-x-auto scrollbar-hide w-full sm:w-auto">
+            {/* 桌機／平板：完整分頁列。手機改用底部導覽（見頁面底部） */}
+            <div className="hidden sm:flex items-center bg-[#F5EFEB]/50 p-1.5 rounded-2xl border border-black/5 shadow-inner overflow-x-auto scrollbar-hide w-full sm:w-auto">
               <button
                 onClick={() => setFinanceTab('overview')}
                 className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
@@ -526,6 +540,22 @@ export default function App() {
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {financeTab === 'overview' && (
               <div className="space-y-8">
+                {/* 小財入口卡：桌寵是最快的記帳路徑，但 Dashboard 本身不卡通化 */}
+                <div className="glass rounded-[24px] p-4 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] flex items-center justify-center text-2xl shadow-inner border border-white/60 shrink-0">
+                    🐣
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-extrabold text-[#5C5248] truncate">{timeGreeting}</p>
+                    <p className="text-xs text-[#82786D] font-bold truncate">{petStatusLine}</p>
+                  </div>
+                  <button
+                    onClick={() => setIsQuickAddOpen(true)}
+                    className="px-4 min-h-[44px] rounded-2xl font-bold text-sm bg-[#87A2B4] text-white hover:bg-[#87A2B4]/90 active:scale-95 transition-all shrink-0"
+                  >
+                    快速記帳
+                  </button>
+                </div>
                 <Dashboard transactions={transactions} budgets={budgets} debts={debts} recurring={recurring} />
                 <CashflowInference transactions={transactions} debts={debts} goals={goals} />
               </div>
@@ -585,23 +615,113 @@ export default function App() {
         </div>
       </main>
 
-      {/* Quick Add Floating Button（極速記帳，同 QuickTransactionForm） */}
+      {/* 桌機／平板的浮動按鈕；手機改用底部導覽中央的 ＋ */}
       <button
         onClick={() => setIsQuickAddOpen(true)}
         aria-label="快速記帳"
-        className="fixed bottom-[5.5rem] right-6 w-11 h-11 bg-[#E2D8C6] hover:bg-[#d8cbb4] text-[#5C5248] rounded-full flex items-center justify-center shadow-[0_6px_20px_rgba(180,170,160,0.4)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 text-xl"
+        className="hidden sm:flex fixed bottom-[5.5rem] right-6 w-12 h-12 bg-[#E2D8C6] hover:bg-[#d8cbb4] text-[#5C5248] rounded-full items-center justify-center shadow-[0_6px_20px_rgba(180,170,160,0.4)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 text-xl"
       >
         🐣
       </button>
 
-      {/* Global Floating Action Button */}
       <button
         onClick={() => setIsGlobalAddOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-[#87A2B4] hover:bg-[#87A2B4]/90 text-white rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(135,162,180,0.5)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 group"
+        aria-label="新增交易"
+        className="hidden sm:flex fixed bottom-6 right-6 w-14 h-14 bg-[#87A2B4] hover:bg-[#87A2B4]/90 text-white rounded-full items-center justify-center shadow-[0_8px_30px_rgba(135,162,180,0.5)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 group"
       >
         <span className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></span>
         <Plus size={26} />
       </button>
+
+      {/* 手機底部導覽：中央 ＋ 讓桌寵停用時 App 本身依然好用 */}
+      <nav
+        aria-label="主要導覽"
+        className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-[#FAF6F0]/95 backdrop-blur border-t border-black/5 pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="flex items-end justify-around px-2 pt-1.5">
+          {([
+            { tab: 'overview' as FinanceTabType, icon: <LayoutDashboard size={20} />, label: '總覽' },
+            { tab: 'transactions' as FinanceTabType, icon: <ReceiptText size={20} />, label: '明細' },
+          ]).map(item => (
+            <button
+              key={item.tab}
+              onClick={() => setFinanceTab(item.tab)}
+              aria-current={financeTab === item.tab ? 'page' : undefined}
+              className={cn(
+                'flex flex-col items-center gap-0.5 min-w-[64px] min-h-[48px] justify-center rounded-xl transition-colors',
+                financeTab === item.tab ? 'text-[#5C5248]' : 'text-[#A79C90]',
+              )}
+            >
+              {item.icon}
+              <span className="text-[10px] font-bold">{item.label}</span>
+            </button>
+          ))}
+
+          <button
+            onClick={() => setIsQuickAddOpen(true)}
+            aria-label="快速記帳"
+            className="-mt-6 w-14 h-14 rounded-full bg-[#87A2B4] text-white flex items-center justify-center shadow-[0_8px_24px_rgba(135,162,180,0.5)] active:scale-95 transition-transform shrink-0"
+          >
+            <Plus size={26} />
+          </button>
+
+          {([
+            { tab: 'liabilities' as FinanceTabType, icon: <Target size={20} />, label: '目標' },
+          ]).map(item => (
+            <button
+              key={item.tab}
+              onClick={() => setFinanceTab(item.tab)}
+              aria-current={financeTab === item.tab ? 'page' : undefined}
+              className={cn(
+                'flex flex-col items-center gap-0.5 min-w-[64px] min-h-[48px] justify-center rounded-xl transition-colors',
+                financeTab === item.tab ? 'text-[#5C5248]' : 'text-[#A79C90]',
+              )}
+            >
+              {item.icon}
+              <span className="text-[10px] font-bold">{item.label}</span>
+            </button>
+          ))}
+
+          <button
+            onClick={() => setIsMoreNavOpen(true)}
+            aria-label="更多分頁"
+            aria-expanded={isMoreNavOpen}
+            className={cn(
+              'flex flex-col items-center gap-0.5 min-w-[64px] min-h-[48px] justify-center rounded-xl transition-colors',
+              ['planning', 'advisor', 'spreadsheet', 'pet'].includes(financeTab) ? 'text-[#5C5248]' : 'text-[#A79C90]',
+            )}
+          >
+            <Menu size={20} />
+            <span className="text-[10px] font-bold">更多</span>
+          </button>
+        </div>
+      </nav>
+
+      {/* 手機「更多」分頁選單 */}
+      {isMoreNavOpen && (
+        <div className="sm:hidden fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="absolute inset-0" onClick={() => setIsMoreNavOpen(false)} />
+          <div className="relative w-full bg-[#FAF6F0] rounded-t-[24px] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-1 animate-in slide-in-from-bottom-4 duration-200">
+            {([
+              { tab: 'planning' as FinanceTabType, label: '📊 預算規劃' },
+              { tab: 'advisor' as FinanceTabType, label: '✨ AI 財務顧問' },
+              { tab: 'spreadsheet' as FinanceTabType, label: '📝 長期試算表' },
+              { tab: 'pet' as FinanceTabType, label: '🐣 桌寵設定' },
+            ]).map(item => (
+              <button
+                key={item.tab}
+                onClick={() => {
+                  setFinanceTab(item.tab);
+                  setIsMoreNavOpen(false);
+                }}
+                className="w-full text-left px-4 min-h-[48px] rounded-2xl font-bold text-[#5C5248] hover:bg-white/70 active:bg-white transition-colors"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Add Modal（桌寵 / 極速記帳）：簡化版，仍走同一個 addTransaction */}
       {isQuickAddOpen && (
