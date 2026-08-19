@@ -45,6 +45,8 @@ class QuickAddActivity : AppCompatActivity() {
     private var parsedPaymentOverride: String? = null
     /** Set when the parser found 昨天/8-17 etc.; otherwise the entry is today's. */
     private var parsedDateKey: String? = null
+    /** How this entry was actually captured, recorded on the outbox row. */
+    private var entrySource: String = "pet_quick_add"
     private val chipViews = mutableMapOf<PetSharedConfigCore.Chip, View>()
     private val paymentViews = mutableMapOf<String, TextView>()
 
@@ -337,6 +339,7 @@ class QuickAddActivity : AppCompatActivity() {
             selectPayment(it)
         }
         parsedDateKey = parsed.dateKey
+        entrySource = if (fromVoice) "pet_voice" else "pet_nl"
         val chip = if (parsed.categoryId != null) {
             chipViews.keys.firstOrNull { it.categoryId == parsed.categoryId && it.note.isEmpty() }
         } else null
@@ -386,7 +389,7 @@ class QuickAddActivity : AppCompatActivity() {
             note = note,
             paymentMethod = selectedPaymentId,
             createdAt = System.currentTimeMillis(),
-            source = if (parsedPaymentOverride != null) "pet_voice" else "pet_quick_add",
+            source = entrySource,
         )
         // Durable outbox write first — this IS the record until the web acks.
         // Success is only reported if the entry is provably on disk.
@@ -450,6 +453,11 @@ class QuickAddActivity : AppCompatActivity() {
         undoBar.visibility = View.GONE
         sheet.visibility = View.VISIBLE
         amountInput.setText("")
+        // A parsed 昨天/8-17 belonged to the entry just undone; the next one
+        // is today's again unless the user says otherwise.
+        parsedDateKey = null
+        parsedPaymentOverride = null
+        entrySource = "pet_quick_add"
         amountInput.requestFocus()
     }
 
