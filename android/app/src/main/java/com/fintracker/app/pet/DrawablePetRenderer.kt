@@ -112,7 +112,9 @@ class DrawablePetRenderer : PetRenderer {
     override fun release() {
         root?.animate()?.cancel()
         body?.animate()?.cancel()
-        face?.removeCallbacks(null)
+        face?.animate()?.cancel()
+        // A pending blink-restore may still fire; applyMood() no-ops once the
+        // view references are gone, so there is nothing else to unwind.
         root = null
         body = null
         face = null
