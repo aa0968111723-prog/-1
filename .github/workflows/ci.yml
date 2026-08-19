@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'claude/**']
+    branches: [main, 'claude/**', 'feat/**', 'fix/**']
   pull_request:
     branches: [main]
 
@@ -62,3 +62,18 @@ jobs:
           name: app-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+      # Lint runs after the APK is built and uploaded, so a lint regression
+      # still leaves an installable artifact to test with while failing the job.
+      - name: Android lint
+        working-directory: android
+        run: ./gradlew lintDebug --stacktrace
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: |
+            android/app/build/reports/lint-results-debug.html
+            android/app/build/reports/lint-results-debug.txt
+          retention-days: 7
+          if-no-files-found: ignore

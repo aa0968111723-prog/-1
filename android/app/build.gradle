@@ -26,6 +26,15 @@ android {
     kotlinOptions {
         jvmTarget = '21'
     }
+    lint {
+        // Real errors fail the build; we do not wholesale-disable checks.
+        abortOnError = true
+        warningsAsErrors = false
+        // Printed into the CI log so failures are diagnosable without downloading
+        // the HTML report (which is also uploaded as an artifact).
+        textReport = true
+        checkReleaseBuilds = false
+    }
 }
 
 repositories {
