@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lv4 cosmetic: an extra leaf beside the sprout. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M50,17 C44,10 36,11 34,15 C40,16 45,19 48,23 Z"
+        android:fillColor="#7FB06F" />
+    <path
+        android:pathData="M48,22 C44,18 40,16 36,15"
+        android:strokeColor="#5F8B52"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+</vector>
