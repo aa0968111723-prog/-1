@@ -16,7 +16,8 @@ import PetSettings from './components/PetSettings';
 import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X, Menu } from 'lucide-react';
 import { cn } from './lib/utils';
 import { loadPetSettings, savePetSettings, bubbleShowsAmounts, PetSettings as PetSettingsType } from './lib/petSettings';
-import { FinancePet, isNativePetAvailable, pendingToTransaction } from './lib/petBridge';
+import { FinancePet, isNativePetAvailable } from './lib/petBridge';
+import { drainOutbox } from './lib/outboxSync';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { financeRepository } from './lib/financeRepository';
 import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
@@ -239,23 +240,12 @@ export default function App() {
    * the id-keyed insert absorbs — never a lost entry.
    */
   const drainNativeOutbox = async () => {
-    const { transactions: pending } = await FinancePet.getPendingTransactions();
-    if (pending.length === 0) return;
-
-    const persistedIds: string[] = [];
-    for (const entry of pending) {
-      const tx = pendingToTransaction(entry);
-      try {
-        financeRepository.addTransaction(tx);
-        // Confirm it really is on disk before we allow the outbox to forget it.
-        if (financeRepository.hasTransaction(tx.id)) persistedIds.push(tx.id);
-      } catch (e) {
-        console.error('[FinancePet.Sync] failed to persist pet transaction', e);
-      }
+    const result = await drainOutbox(FinancePet, financeRepository);
+    if (result.importedIds.length > 0 || result.failedIds.length > 0) {
+      syncFromRepository();
     }
-    syncFromRepository();
-    if (persistedIds.length > 0) {
-      await FinancePet.ackPendingTransactions({ ids: persistedIds });
+    if (result.failedIds.length > 0) {
+      console.error('[FinancePet.Sync] entries kept in the outbox for retry', result.failedIds.length);
     }
   };
 
