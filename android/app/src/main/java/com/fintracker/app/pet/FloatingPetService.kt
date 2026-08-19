@@ -7,8 +7,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
@@ -29,6 +31,7 @@ import android.widget.TextView
 import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.fintracker.app.MainActivity
 import com.fintracker.app.R
 import org.json.JSONObject
@@ -46,7 +49,7 @@ import kotlin.random.Random
  * rules. Finance business logic never lives here — the pet only renders the
  * non-sensitive display state the web domain layer pushed via
  * FinancePetPlugin. Animation arbitration is delegated to
- * [PetAnimationController] so feedback animations are never cut short by
+ * [PetStateMachine] so feedback animations are never cut short by
  * decorations.
  */
 class FloatingPetService : Service() {
@@ -58,7 +61,7 @@ class FloatingPetService : Service() {
     private var petView: FloatingPetView? = null
     private var petParams: WindowManager.LayoutParams? = null
     private var renderer: PetRenderer = DrawablePetRenderer()
-    private val animController = PetAnimationController()
+    private val stateMachine = PetStateMachine()
 
     private var bubbleView: TextView? = null
     private var menuView: View? = null
@@ -69,7 +72,35 @@ class FloatingPetService : Service() {
     private var dragging = false
     private var quickAddVisible = false
     private var snoozed = false
+    private var screenOn = true
     private var snapAnimator: ValueAnimator? = null
+
+    /**
+     * Stops every animation while the screen is off and resumes when it comes
+     * back. Nothing here holds a WakeLock or wakes the device — the pet must
+     * cost nothing while the phone is in a pocket.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    screenOn = false
+                    handler.removeCallbacks(idleRunnable)
+                    handler.removeCallbacks(collapseRunnable)
+                    snapAnimator?.cancel()
+                    runCatching { dismissBubble() }
+                    runCatching { dismissMenu() }
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    screenOn = true
+                    if (petView != null) {
+                        scheduleIdle()
+                        scheduleAutoCollapse()
+                    }
+                }
+            }
+        }
+    }
 
     private val idleRunnable = object : Runnable {
         override fun run() {
@@ -87,6 +118,15 @@ class FloatingPetService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         prefs = PetPrefs(this)
+        ContextCompat.registerReceiver(
+            this,
+            screenReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -98,6 +138,9 @@ class FloatingPetService : Service() {
                 ACTION_UPDATE_SETTINGS -> handleSettingsChanged()
                 ACTION_UPDATE_STATE -> applyPetState()
                 ACTION_SHOW_SUCCESS -> showSuccess(intent.getStringExtra(EXTRA_MESSAGE) ?: "記好啦！")
+                ACTION_SHOW_ERROR -> showSaveFailed(
+                    intent.getStringExtra(EXTRA_MESSAGE) ?: "這筆還沒存成功，再試一次",
+                )
                 ACTION_SNOOZE -> snooze(intent.getLongExtra(EXTRA_SNOOZE_MINUTES, 30L))
                 ACTION_QUICKADD_SHOWN -> quickAddVisible = true
                 ACTION_QUICKADD_HIDDEN -> {
@@ -162,6 +205,7 @@ class FloatingPetService : Service() {
     override fun onDestroy() {
         removeAllWindows()
         handler.removeCallbacks(snoozeResumeRunnable)
+        runCatching { unregisterReceiver(screenReceiver) }
         running = false
         super.onDestroy()
     }
@@ -176,20 +220,26 @@ class FloatingPetService : Service() {
         params.x = pos.x
         params.y = pos.y + topInset()
         collapsed = false
-        view.alpha = 1f
+        view.alpha = settings.alpha()
         safeUpdate(view, params)
         scheduleAutoCollapse()
     }
 
     // ---- 暫停 30 分鐘（相機 / 遊戲情境） ----
 
+    /**
+     * Hides the overlay without touching any data. [minutes] of 0 means
+     * "until I turn it back on" — the notification's 恢復 action is then the
+     * only way back, which is exactly what a long gaming or camera session
+     * wants.
+     */
     private fun snooze(minutes: Long) {
         snoozed = true
         removePetWindowsOnly()
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIFICATION_ID, buildNotification(snoozed = true))
         handler.removeCallbacks(snoozeResumeRunnable)
-        handler.postDelayed(snoozeResumeRunnable, minutes * 60_000L)
+        if (minutes > 0) handler.postDelayed(snoozeResumeRunnable, minutes * 60_000L)
     }
 
     private fun resumeFromSnooze() {
@@ -240,6 +290,7 @@ class FloatingPetService : Service() {
         }
         petView = view
         petParams = params
+        view.alpha = settings.alpha()
         scheduleIdle()
         scheduleAutoCollapse()
     }
@@ -294,7 +345,7 @@ class FloatingPetService : Service() {
             dismissMenu()
             dismissBubble()
             snapAnimator?.cancel()
-            animController.request("dragging", 120_000L)
+            stateMachine.request(PetState.DRAGGING, 120_000L)
             // 拖曳中稍微放大，有「被拿起來」的感覺
             petView?.animate()?.scaleX(1.1f)?.scaleY(1.1f)?.setDuration(120)?.start()
         }
@@ -313,7 +364,7 @@ class FloatingPetService : Service() {
 
         override fun onDragEnd() {
             dragging = false
-            animController.clearTransient("dragging")
+            stateMachine.clearTransient(PetState.DRAGGING)
             petView?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(150)?.start()
             snapToNearestEdge()
         }
@@ -362,13 +413,13 @@ class FloatingPetService : Service() {
         if (collapsed || dragging || quickAddVisible || menuView != null) return
         val params = petParams ?: return
         val view = petView ?: return
-        if (!animController.request("edgePeek", 60_000L)) return
+        if (!stateMachine.request(PetState.EDGE_PEEK, 60_000L)) return
         val (w, _) = screenSize()
         val edge = prefs.loadPosition().edge
         collapsed = true
         val targetX = if (edge == PetPositionManager.EDGE_LEFT) -petSizePx / 2 else w - petSizePx / 2
         animateX(view, params, targetX)
-        view.alpha = 0.75f
+        view.alpha = settings.alpha() * 0.75f
     }
 
     private fun expandFromEdge() {
@@ -377,8 +428,8 @@ class FloatingPetService : Service() {
         val (w, _) = screenSize()
         val edge = prefs.loadPosition().edge
         collapsed = false
-        animController.clearTransient("edgePeek")
-        view.alpha = 1f
+        stateMachine.clearTransient(PetState.EDGE_PEEK)
+        view.alpha = settings.alpha()
         animateX(view, params, PetPositionManager.snapTargetX(edge, w, petSizePx))
         scheduleAutoCollapse()
     }
@@ -459,8 +510,7 @@ class FloatingPetService : Service() {
         addItem("🎙 語音記帳") { openQuickAdd("expense", voice = true) }
         addItem("📊 財務總覽") { openMainApp(PetActionBridge.EVENT_OPEN_DASHBOARD) }
         addItem("⚙️ 桌寵設定") { openMainApp(EVENT_OPEN_PET_SETTINGS) }
-        addItem("🕶 暫停 30 分鐘") { snooze(30) }
-        addItem("✕ 關閉桌寵") { handleStop(userInitiated = true) }
+        addItem("⏸ 暫停") { showSnoozeMenu() }
 
         val menuParams = WindowManager.LayoutParams(
             dp(160),
@@ -485,6 +535,66 @@ class FloatingPetService : Service() {
 
         runCatching { windowManager.addView(menu, menuParams) }
             .onSuccess { menuView = menu }
+    }
+
+    /** Second-level menu: 暫停 30 分鐘 / 1 小時 / 直到我重新開啟 / 關閉桌寵. */
+    private fun showSnoozeMenu() {
+        dismissMenu()
+        val params = petParams ?: return
+        val (w, _) = screenSize()
+        val onLeft = params.x + petSizePx / 2 <= w / 2
+
+        val menu = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun addItem(label: String, action: () -> Unit) {
+            val item = TextView(this@FloatingPetService).apply {
+                text = label
+                textSize = 14f
+                setTextColor(0xFF5C5248.toInt())
+                setBackgroundResource(R.drawable.pet_menu_item_bg)
+                minHeight = dp(44)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                contentDescription = label
+                setOnClickListener {
+                    dismissMenu()
+                    action()
+                }
+            }
+            menu.addView(
+                item,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dp(6) },
+            )
+        }
+        addItem(getString(R.string.pet_snooze_30m)) { snooze(30) }
+        addItem(getString(R.string.pet_snooze_1h)) { snooze(60) }
+        // "Until I turn it back on": hide the overlay but keep the service and
+        // all data; the notification's 恢復 action brings the pet back.
+        addItem(getString(R.string.pet_snooze_until_resume)) { snooze(0) }
+        addItem("✕ 關閉桌寵") { handleStop(userInitiated = true) }
+
+        val menuParams = WindowManager.LayoutParams(
+            dp(170),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = if (onLeft) params.x + petSizePx + dp(8) else max(0, params.x - dp(170) - dp(8))
+            y = max(topInset(), params.y - dp(40))
+        }
+        menu.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                dismissMenu()
+                true
+            } else false
+        }
+        runCatching { windowManager.addView(menu, menuParams) }.onSuccess { menuView = menu }
     }
 
     private fun dismissMenu() {
@@ -538,21 +648,34 @@ class FloatingPetService : Service() {
 
     private fun applyPetState() {
         val state = runCatching { JSONObject(prefs.petStateJson) }.getOrElse { JSONObject() }
-        animController.baseMood = state.optString("mood", "idle")
-        renderer.setMood(animController.current())
+        stateMachine.baseMood = state.optString("mood", "idle")
+        renderer.setMood(stateMachine.current())
         renderer.setAnimationLevel(effectiveAnimationLevel())
     }
 
+    /** Shown only after a durable write actually succeeded. */
     private fun showSuccess(message: String) {
         if (collapsed) expandFromEdge()
-        if (animController.request("success", 2_000L)) {
-            renderer.setMood("success")
+        if (stateMachine.request(PetState.SUCCESS, 2_000L)) {
+            renderer.setMood(PetState.SUCCESS)
             renderer.playSuccess()
         }
         showBubbleMessage(message)
-        // 成功動畫結束後回到 base mood
-        handler.postDelayed({ runCatching { renderer.setMood(animController.current()) } }, 2_100L)
+        handler.postDelayed({ runCatching { renderer.setMood(stateMachine.current()) } }, 2_100L)
         scheduleAutoCollapse()
+    }
+
+    /**
+     * The write did NOT persist. The pet must never claim success it did not
+     * achieve — quick add keeps the user's input so they can retry.
+     */
+    private fun showSaveFailed(message: String) {
+        if (collapsed) expandFromEdge()
+        if (stateMachine.request(PetState.ERROR, 3_000L)) {
+            renderer.setMood(PetState.ERROR)
+        }
+        showBubbleMessage(message, 3_000L)
+        handler.postDelayed({ runCatching { renderer.setMood(stateMachine.current()) } }, 3_100L)
     }
 
     private fun handleSettingsChanged() {
@@ -589,16 +712,17 @@ class FloatingPetService : Service() {
         val night = hour >= 23 || hour < 7
         if (night) {
             // 夜間休息：睡覺表情、幾乎不動。點擊仍照常記帳。
-            if (animController.baseMood == "idle") renderer.setMood("sleepy")
+            if (stateMachine.baseMood == "idle") renderer.setMood("sleepy")
             return
         }
-        if (!animController.idleTickAllowed()) return
+        if (!stateMachine.idleTickAllowed()) return
         renderer.playIdleTick()
     }
 
     private fun scheduleIdle() {
         handler.removeCallbacks(idleRunnable)
-        if (effectiveAnimationLevel() != "full") return
+        // No animation work at all while the screen is off or animations are simplified.
+        if (!screenOn || effectiveAnimationLevel() != "full") return
         handler.postDelayed(idleRunnable, (8_000L + Random.nextLong(12_000L)))
     }
 
@@ -718,6 +842,7 @@ class FloatingPetService : Service() {
         const val ACTION_UPDATE_SETTINGS = "com.fintracker.app.pet.UPDATE_SETTINGS"
         const val ACTION_UPDATE_STATE = "com.fintracker.app.pet.UPDATE_STATE"
         const val ACTION_SHOW_SUCCESS = "com.fintracker.app.pet.SHOW_SUCCESS"
+        const val ACTION_SHOW_ERROR = "com.fintracker.app.pet.SHOW_ERROR"
         const val ACTION_SNOOZE = "com.fintracker.app.pet.SNOOZE"
         const val ACTION_QUICKADD_SHOWN = "com.fintracker.app.pet.QUICKADD_SHOWN"
         const val ACTION_QUICKADD_HIDDEN = "com.fintracker.app.pet.QUICKADD_HIDDEN"

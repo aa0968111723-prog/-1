@@ -26,6 +26,12 @@
     <string name="pet_quick_expense_shortcut">快速支出</string>
     <string name="pet_quick_income_shortcut">快速收入</string>
     <string name="pet_notification_add">記一筆</string>
+    <string name="pet_save_failed">這筆還沒存成功，內容都還在，再按一次「記下來」</string>
+    <string name="pet_save_failed_bubble">這筆還沒存成功，再試一次</string>
+    <string name="pet_saving">記錄中…</string>
+    <string name="pet_snooze_30m">暫停 30 分鐘</string>
+    <string name="pet_snooze_1h">暫停 1 小時</string>
+    <string name="pet_snooze_until_resume">暫停，直到我開啟</string>
     <string name="pet_restore_notification_title">🐣 小財想回來陪你</string>
     <string name="pet_restore_notification_text">點一下重新開啟桌寵</string>
 </resources>

@@ -43,6 +43,8 @@ class QuickAddActivity : AppCompatActivity() {
     private var selectedChip: PetSharedConfigCore.Chip? = null
     private var selectedPaymentId: String = "cash"
     private var parsedPaymentOverride: String? = null
+    /** Set when the parser found 昨天/8-17 etc.; otherwise the entry is today's. */
+    private var parsedDateKey: String? = null
     private val chipViews = mutableMapOf<PetSharedConfigCore.Chip, View>()
     private val paymentViews = mutableMapOf<String, TextView>()
 
@@ -334,10 +336,18 @@ class QuickAddActivity : AppCompatActivity() {
             parsedPaymentOverride = it
             selectPayment(it)
         }
-        val chip = chipViews.keys.firstOrNull { it.categoryId == parsed.categoryId && it.note.isEmpty() }
+        parsedDateKey = parsed.dateKey
+        val chip = if (parsed.categoryId != null) {
+            chipViews.keys.firstOrNull { it.categoryId == parsed.categoryId && it.note.isEmpty() }
+        } else null
         if (chip != null) {
             selectedChip = chip
             chipViews.forEach { (c, v) -> v.isSelected = c == chip }
+        } else {
+            // Never guess a category: leave it unselected and say so.
+            selectedChip = null
+            chipViews.forEach { (_, v) -> v.isSelected = false }
+            Toast.makeText(this, getString(R.string.pet_category_required), Toast.LENGTH_SHORT).show()
         }
         if (fromVoice) {
             findViewById<View>(R.id.more_section).visibility = View.VISIBLE
@@ -364,7 +374,9 @@ class QuickAddActivity : AppCompatActivity() {
             return
         }
         val note = noteInput.text?.toString()?.trim().orEmpty().ifEmpty { resolvedChip.note }
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        // Device-local calendar date (SimpleDateFormat uses the default zone),
+        // or the date the parser recognised (昨天 / 8-17).
+        val today = parsedDateKey ?: SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val tx = PendingTransactionCodec.PendingTransaction(
             id = UUID.randomUUID().toString(),
             type = type,
@@ -377,7 +389,22 @@ class QuickAddActivity : AppCompatActivity() {
             source = if (parsedPaymentOverride != null) "pet_voice" else "pet_quick_add",
         )
         // Durable outbox write first — this IS the record until the web acks.
-        PendingTransactionQueue.add(prefs.prefs, tx)
+        // Success is only reported if the entry is provably on disk.
+        val persisted = PendingTransactionQueue.add(prefs.prefs, tx)
+        if (!persisted) {
+            // Keep every field the user typed so they can simply tap again.
+            Toast.makeText(this, getString(R.string.pet_save_failed), Toast.LENGTH_LONG).show()
+            if (FloatingPetService.running) {
+                runCatching {
+                    startService(
+                        Intent(this, FloatingPetService::class.java)
+                            .setAction(FloatingPetService.ACTION_SHOW_ERROR)
+                            .putExtra(FloatingPetService.EXTRA_MESSAGE, getString(R.string.pet_save_failed_bubble)),
+                    )
+                }
+            }
+            return
+        }
         prefs.lastPaymentMethod = selectedPaymentId
         lastSavedId = tx.id
 

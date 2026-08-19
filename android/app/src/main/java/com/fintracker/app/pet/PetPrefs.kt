@@ -92,11 +92,19 @@ data class PetSettingsSnapshot(
     val fastMode: Boolean = false,
     val showAmounts: Boolean = false,
     val petName: String = "小財",
+    /** "100" | "85" | "70" — never lower, the pet must stay tappable. */
+    val opacity: String = "100",
 ) {
     fun sizeDp(): Int = when (size) {
         "small" -> 56
         "large" -> 80
         else -> 68
+    }
+
+    fun alpha(): Float = when (opacity) {
+        "70" -> 0.7f
+        "85" -> 0.85f
+        else -> 1f
     }
 
     fun autoCollapseMillis(): Long? = when (autoCollapse) {
@@ -116,6 +124,7 @@ data class PetSettingsSnapshot(
                 fastMode = o.optBoolean("fastMode", false),
                 showAmounts = o.optBoolean("showAmounts", false),
                 petName = o.optString("petName", "小財"),
+                opacity = o.optString("opacity", "100"),
             )
         } catch (e: Exception) {
             PetSettingsSnapshot()

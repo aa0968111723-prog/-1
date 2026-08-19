@@ -4,8 +4,12 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 /**
  * Runs the native NL matcher against the REAL shared config file
@@ -16,38 +20,49 @@ class NativeQuickParserTest {
 
     private val config: JSONObject by lazy {
         val candidates = listOf(
-            "../../shared/pet-shared-config.json", // android/app working dir (gradle test)
+            "../../shared/pet-shared-config.json", // gradle test workdir = android/app
             "../shared/pet-shared-config.json",
-            "shared/pet-shared-config.json", // repo root
-            System.getProperty("petSharedConfig") ?: "",
+            "shared/pet-shared-config.json",
+            "src/main/assets/pet_shared_config.json", // bundled copy
         )
         val file = candidates.map { File(it) }.firstOrNull { it.isFile }
-            ?: error("shared/pet-shared-config.json not found from ${File(".").absolutePath}")
+            ?: error("shared config not found from ${File(".").absolutePath}")
         JSONObject(file.readText())
     }
 
+    /** Fixed clock so relative-date assertions are stable. */
+    private val now = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).parse("2026-08-19 12:30")!!
+
+    private fun dayOffsetKey(offset: Int): String {
+        val cal = Calendar.getInstance()
+        cal.time = now
+        cal.add(Calendar.DAY_OF_YEAR, offset)
+        return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+    }
+
     @Test
-    fun `parses 午餐120 into a high-confidence food expense`() {
-        val r = NativeQuickParser.parse(config, "午餐120")
+    fun `parses 午餐120 into a high-confidence food expense dated today`() {
+        val r = NativeQuickParser.parse(config, "午餐120", now)
         assertEquals("expense", r.type)
         assertEquals(120.0, r.amount!!, 0.001)
         assertEquals("food", r.categoryId)
         assertEquals("餐飲美食", r.categoryLabel)
+        assertEquals(dayOffsetKey(0), r.dateKey)
         assertEquals("high", r.confidence)
     }
 
     @Test
-    fun `parses 捷運50悠遊卡 with payment mapping`() {
-        val r = NativeQuickParser.parse(config, "捷運50悠遊卡")
+    fun `parses 捷運50悠遊卡 and maps the specific instrument`() {
+        val r = NativeQuickParser.parse(config, "捷運50悠遊卡", now)
         assertEquals("transport", r.categoryId)
         assertEquals(50.0, r.amount!!, 0.001)
-        assertEquals("mobile", r.paymentMethodId)
+        assertEquals("easycard", r.paymentMethodId)
         assertEquals("high", r.confidence)
     }
 
     @Test
     fun `parses 薪水35000 as income`() {
-        val r = NativeQuickParser.parse(config, "薪水35000")
+        val r = NativeQuickParser.parse(config, "薪水35000", now)
         assertEquals("income", r.type)
         assertEquals("salary", r.categoryId)
         assertEquals(35000.0, r.amount!!, 0.001)
@@ -55,17 +70,59 @@ class NativeQuickParserTest {
     }
 
     @Test
-    fun `parses spoken Chinese amounts 午餐一百二十塊`() {
-        val r = NativeQuickParser.parse(config, "午餐一百二十塊")
+    fun `recognises merchants - 全聯850信用卡`() {
+        val r = NativeQuickParser.parse(config, "全聯850信用卡", now)
+        assertEquals(850.0, r.amount!!, 0.001)
+        assertEquals("shopping", r.categoryId)
+        assertEquals("credit", r.paymentMethodId)
+    }
+
+    @Test
+    fun `resolves 昨天晚餐180 to yesterday`() {
+        val r = NativeQuickParser.parse(config, "昨天晚餐180", now)
+        assertEquals(180.0, r.amount!!, 0.001)
+        assertEquals("food", r.categoryId)
+        assertEquals(dayOffsetKey(-1), r.dateKey)
+        assertTrue(!r.note.contains("昨天"))
+    }
+
+    @Test
+    fun `never guesses an unknown category`() {
+        val r = NativeQuickParser.parse(config, "小明120", now)
+        assertEquals(120.0, r.amount!!, 0.001)
+        assertNull(r.categoryId)
+        assertEquals("", r.categoryLabel)
+        assertEquals("medium", r.confidence)
+    }
+
+    @Test
+    fun `convenience stores stay ambiguous and are not read as a date or amount`() {
+        val r = NativeQuickParser.parse(config, "7-11 85", now)
+        assertEquals(85.0, r.amount!!, 0.001)
+        assertNull(r.categoryId)
+        assertEquals(dayOffsetKey(0), r.dateKey)
+        assertTrue(r.note.contains("7-11"))
+        assertEquals("medium", r.confidence)
+    }
+
+    @Test
+    fun `parses spoken Chinese amounts`() {
+        val r = NativeQuickParser.parse(config, "午餐一百二十塊", now)
         assertEquals(120.0, r.amount!!, 0.001)
         assertEquals("food", r.categoryId)
     }
 
     @Test
-    fun `no amount means low or medium confidence, never a save`() {
-        val r = NativeQuickParser.parse(config, "今天好熱")
+    fun `no amount and no category is low confidence`() {
+        val r = NativeQuickParser.parse(config, "今天好熱", now)
         assertNull(r.amount)
         assertEquals("low", r.confidence)
+    }
+
+    @Test
+    fun `longest payment keyword wins`() {
+        assertEquals("credit", NativeQuickParser.parse(config, "晚餐300信用卡", now).paymentMethodId)
+        assertEquals("linepay", NativeQuickParser.parse(config, "晚餐300 LINE Pay", now).paymentMethodId)
     }
 
     @Test
@@ -84,7 +141,8 @@ class NativeQuickParserTest {
         assertEquals("food", chips[0].categoryId)
         assertEquals("餐飲美食", chips[0].categoryLabel)
         val payments = PetSharedConfigCore.paymentMethods(config)
-        assertNotNull(payments.firstOrNull { it.id == "mobile" })
+        assertNotNull(payments.firstOrNull { it.id == "easycard" })
+        assertNotNull(payments.firstOrNull { it.id == "linepay" })
     }
 
     @Test
@@ -95,7 +153,6 @@ class NativeQuickParserTest {
         assertEquals(1, chips!!.size)
         assertEquals("health", chips[0].categoryId)
         assertEquals("醫療保健", chips[0].categoryLabel)
-        // corrupted synced payload falls back to null (caller uses defaults)
         assertNull(PetSharedConfigCore.parseSyncedChips(config, "{broken", "expense"))
     }
 }
