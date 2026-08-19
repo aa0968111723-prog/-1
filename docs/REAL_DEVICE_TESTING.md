@@ -25,6 +25,14 @@ CI 只能做兩件事：跑單元測試、把 APK 組出來。
 | D6 | Xiaomi | HyperOS / MIUI | 14 或 15 | 自啟動管理、鎖定最近工作、通知類別限制 |
 | D7 | 小螢幕（~5.5"） | 任一 | 任一 | Quick Add 不捲動即可完成；IME 彈出後儲存鈕仍可見 |
 | D8 | 大螢幕（~6.8"） | 任一 | 任一 | 單手拇指可及；桌寵預設位置不在死角 |
+| D9 | minSdk 底線 | 任一 | 7.0 / 7.1 (API 24/25) | 見下方「minSdk 24 的特別注意」 |
+
+**minSdk 24 的特別注意**：`TYPE_APPLICATION_OVERLAY` 是 API 26 才有的，
+24/25 走的是 `TYPE_PHONE` 這條分支（`FloatingPetService.overlayWindowType`），
+而 `paddingHorizontal/Vertical` 這類 API 26 屬性在 24/25 會被直接丟掉。
+兩者都已修正，但**這條分支從未在任何 24/25 的裝置或模擬器上跑過**。
+如果不打算支援 Android 7.x，正確的做法是把 `variables.gradle` 的
+`minSdkVersion` 提到 26，而不是留著一條沒人驗證的路徑。
 
 **版本覆蓋的最低要求**：14 / 15 / 16 三個版本都必須至少各被一台涵蓋。
 如果手上湊不齊，用 Emulator 補 API 版本的差異（overlay 與 FGS 行為可測），
