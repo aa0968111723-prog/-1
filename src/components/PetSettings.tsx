@@ -27,6 +27,7 @@ import {
   PaymentMethodPrefs,
 } from '../lib/paymentMethods';
 import { loadPinnedCategoryIds } from '../lib/quickCategories';
+import { runIntegrityCheck, loadIntegrityReport, IntegrityReport } from '../lib/integrity';
 import { STORAGE_KEYS, saveJSON } from '../lib/storage';
 import { cn } from '../lib/utils';
 
@@ -92,6 +93,8 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
   const [newCategoryType, setNewCategoryType] = useState<'expense' | 'income'>('expense');
   const [categoryError, setCategoryError] = useState('');
   const [paymentPrefs, setPaymentPrefs] = useState<PaymentMethodPrefs>(() => loadPaymentPrefs());
+  const [integrity, setIntegrity] = useState<IntegrityReport | null>(() => loadIntegrityReport());
+  const storageVersion = localStorage.getItem(STORAGE_KEYS.storageVersion) ?? '0';
   const expenseCategories = listCategories('expense');
   const [importPreview, setImportPreview] = useState<{ backup: FinanceBackup; validation: BackupValidation } | null>(null);
   const [importError, setImportError] = useState('');
@@ -610,7 +613,29 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
                 </span>
               </div>
             )}
+            <div className="flex justify-between text-[#82786D]">
+              <span>資料版本</span>
+              <span>v{storageVersion}</span>
+            </div>
+            <div className="flex justify-between text-[#82786D]">
+              <span>資料檢查</span>
+              <span>
+                {integrity
+                  ? integrity.ok
+                    ? `✓ ${integrity.transactionCount} 筆正常`
+                    : `${integrity.issues.length} 項待確認`
+                  : '—'}
+              </span>
+            </div>
           </div>
+          {integrity && !integrity.ok && (
+            <ul className="mt-2 space-y-1 text-xs font-bold text-[#C08A5A]">
+              {integrity.issues.slice(0, 5).map((issue, i) => (
+                <li key={i}>• {issue.detail}</li>
+              ))}
+              {integrity.issues.length > 5 && <li>• 還有 {integrity.issues.length - 5} 項…</li>}
+            </ul>
+          )}
           {settings.enabled && status && !status.permissionGranted && (
             <button
               type="button"
@@ -622,7 +647,10 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
           )}
           <button
             type="button"
-            onClick={refreshStatus}
+            onClick={() => {
+              refreshStatus();
+              setIntegrity(runIntegrityCheck());
+            }}
             className="w-full mt-2 py-2 text-sm font-bold text-[#82786D] hover:text-[#5C5248] transition-colors"
           >
             重新整理狀態
