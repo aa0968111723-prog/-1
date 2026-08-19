@@ -1,10 +1,16 @@
 name: CI
 
 on:
+  # Feature branches are covered by the pull_request trigger; listing them here
+  # too would run every job twice on each push.
   push:
-    branches: [main, 'claude/**', 'feat/**', 'fix/**']
+    branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   web:
