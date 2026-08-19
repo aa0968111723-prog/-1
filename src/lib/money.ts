@@ -13,10 +13,17 @@ export const DEFAULT_CURRENCY = 'TWD';
 /** TWD has no minor unit in practice, but the schema keeps the door open. */
 export const MINOR_UNITS_PER_MAJOR = 100;
 
-/** 120.5 -> 12050. Rounds half away from zero, so 0.005 never vanishes. */
+/**
+ * 120.5 -> 12050. Rounds half AWAY FROM ZERO in both directions.
+ *
+ * Math.round alone rounds half toward +∞, which silently drops a negative
+ * half-cent (-0.005 would become -0) and rounds -0.015 to -1 instead of -2.
+ * Negative amounts reach here through subtractAmounts and refunds.
+ */
 export function toMinor(amount: number): number {
   if (!Number.isFinite(amount)) return 0;
-  return Math.round(amount * MINOR_UNITS_PER_MAJOR);
+  const scaled = amount * MINOR_UNITS_PER_MAJOR;
+  return scaled < 0 ? -Math.round(-scaled) : Math.round(scaled);
 }
 
 /** 12050 -> 120.5 */

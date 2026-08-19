@@ -46,7 +46,7 @@ const ALL_DEFS: CategoryDef[] = [...CATEGORY_DEFS.expense, ...CATEGORY_DEFS.inco
 const byId = new Map<string, CategoryDef>(ALL_DEFS.map(d => [d.id, d]));
 const byLabel = new Map<string, CategoryDef>(ALL_DEFS.map(d => [d.label, d]));
 
-const LEGACY_ALIASES: Record<string, string> = sharedConfig.legacyLabelAliases;
+export const LEGACY_ALIASES: Record<string, string> = sharedConfig.legacyLabelAliases;
 
 /** Resolves a stored category value (label, legacy label, or id) to a stable id. */
 export function categoryIdForStored(stored: string): string {

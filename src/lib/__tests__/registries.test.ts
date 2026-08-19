@@ -258,15 +258,33 @@ describe('categoryRegistry — describeCategory', () => {
     });
   });
 
-  it('falls back to 其他支出 for an unknown value', () => {
+  it('keeps an unrecognised value visible under its own label', () => {
     const storage = createMemoryStorage();
-    // categoryIdForStored() maps anything unrecognised to 'other_expense',
-    // so an unknown value resolves to the built-in "other expense" def.
+    // It buckets as other_expense for ranking, but the DISPLAY keeps the
+    // stored label — a transaction filed under a custom category the user
+    // later deleted must not silently re-label itself 其他支出.
     expect(describeCategory('完全沒看過的東西', storage)).toEqual({
       id: 'other_expense',
-      label: '其他支出',
-      emoji: '📦',
+      label: '完全沒看過的東西',
+      emoji: '🏷️',
     });
+  });
+
+  it('a deleted custom category still shows its own name on old rows', () => {
+    const storage = createMemoryStorage();
+    const added = addCustomCategory({ label: '寵物', emoji: '🐶', type: 'expense' }, storage);
+    expect(added.ok).toBe(true);
+    removeCustomCategory(added.category!.id, storage);
+    expect(describeCategory('寵物', storage).label).toBe('寵物');
+  });
+
+  it('rejects a custom label that clashes with a built-in of the OTHER type', () => {
+    const storage = createMemoryStorage();
+    // Stored categories are matched by label across both types, so an income
+    // "餐飲美食" would hijack every existing expense row in that category.
+    const result = addCustomCategory({ label: '餐飲美食', emoji: '🍔', type: 'income' }, storage);
+    expect(result.ok).toBe(false);
+    expect(describeCategory('餐飲美食', storage).id).toBe('food');
   });
 
   it('still resolves a custom label after the category was removed (from the catalog fallback)', () => {

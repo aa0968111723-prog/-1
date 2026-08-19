@@ -3,9 +3,11 @@
  *
  * Every date key stored in FinTracker is a LOCAL calendar date (YYYY-MM-DD in
  * the device's timezone). `new Date().toISOString().split('T')[0]` is a bug for
- * this purpose: at 23:00 in UTC+8 it yields tomorrow's date, so an evening
- * entry would land on the wrong day (and in UTC-5 a morning entry lands on
- * yesterday). Nothing outside this module should format date keys.
+ * this purpose: in UTC+8 an early-morning entry (00:30) shifts back to
+ * YESTERDAY's UTC date, and in UTC-5 a late-evening entry (23:00) shifts
+ * forward to TOMORROW's. Either way it lands on a day that the "today",
+ * streak and monthly readers never look at. Nothing outside this module
+ * should format date keys.
  */
 
 /** YYYY-MM-DD in the device's local timezone. */

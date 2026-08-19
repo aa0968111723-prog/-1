@@ -11,7 +11,7 @@
  */
 
 import { TransactionType } from '../types';
-import { CATEGORY_DEFS, CategoryDef, categoryIdForStored, labelForCategoryId } from './categoryCatalog';
+import { CATEGORY_DEFS, CategoryDef, categoryIdForStored, labelForCategoryId, LEGACY_ALIASES } from './categoryCatalog';
 import { STORAGE_KEYS, loadJSON, saveJSON } from './storage';
 
 export interface CustomCategory extends CategoryDef {
@@ -75,9 +75,12 @@ export function addCustomCategory(
   const existing = loadCustomCategories(storage);
   if (existing.length >= MAX_CUSTOM_CATEGORIES) return { ok: false, error: '自訂分類數量已達上限' };
 
-  const clashesBuiltIn = CATEGORY_DEFS[input.type].some(d => d.label === label);
+  // Labels are matched across BOTH types when resolving a stored category, so
+  // an income category named 餐飲美食 would hijack every existing expense row
+  // in that category. Reject the clash regardless of type.
+  const clashesBuiltIn = [...CATEGORY_DEFS.expense, ...CATEGORY_DEFS.income].some(d => d.label === label);
   if (clashesBuiltIn) return { ok: false, error: '已經有同名的內建分類了' };
-  if (existing.some(c => c.type === input.type && c.label === label)) {
+  if (existing.some(c => c.label === label)) {
     return { ok: false, error: '已經有同名的自訂分類了' };
   }
 
@@ -120,14 +123,26 @@ export function listCategoryLabels(
   return listCategories(type, storage).map(c => c.label);
 }
 
-/** Resolves a stored value to its display parts, including custom categories. */
+const KNOWN_LABELS = new Set(
+  [...CATEGORY_DEFS.expense, ...CATEGORY_DEFS.income].flatMap(d => [d.label, d.id]),
+);
+
+/**
+ * Resolves a stored value to its display parts, including custom categories.
+ *
+ * A value that matches nothing — typically a custom category the user later
+ * deleted — keeps its own label for display rather than being relabelled
+ * 其他支出. The transaction itself is never rewritten either way.
+ */
 export function describeCategory(
   stored: string,
   storage: Storage | undefined = globalThis.localStorage,
 ): CategoryDef {
   const custom = loadCustomCategories(storage).find(c => c.label === stored || c.id === stored);
   if (custom) return { id: custom.id, label: custom.label, emoji: custom.emoji };
+
   const id = categoryIdForStored(stored);
   const builtIn = [...CATEGORY_DEFS.expense, ...CATEGORY_DEFS.income].find(d => d.id === id);
-  return builtIn ?? { id, label: labelForCategoryId(id), emoji: '🏷️' };
+  if (builtIn && (KNOWN_LABELS.has(stored) || LEGACY_ALIASES[stored])) return builtIn;
+  return { id, label: stored || labelForCategoryId(id), emoji: '🏷️' };
 }

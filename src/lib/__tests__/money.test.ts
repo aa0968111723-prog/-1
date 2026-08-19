@@ -233,3 +233,20 @@ describe('parseAmountInput', () => {
     expect(formatMoney(parsed as number)).toBe('NT$ 1,280.50');
   });
 });
+
+describe('toMinor rounds half away from zero in both directions', () => {
+  it('does not swallow a negative half-cent', () => {
+    // Math.round alone rounds half toward +Infinity, which turns -0.005 into
+    // -0 (the cent vanishes) and -0.015 into -1 instead of -2. Negative
+    // amounts reach toMinor through subtractAmounts and refunds.
+    expect(toMinor(-0.005)).toBe(-1);
+    expect(toMinor(0.005)).toBe(1);
+    expect(toMinor(-0.015)).toBe(-2);
+    expect(toMinor(0.015)).toBe(2);
+  });
+
+  it('keeps subtraction symmetric around zero', () => {
+    expect(subtractAmounts(0, 0.005)).toBe(-0.01);
+    expect(addAmounts(-0.005, 0.005)).toBe(0);
+  });
+});
