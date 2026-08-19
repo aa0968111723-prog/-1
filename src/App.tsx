@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Transaction, BudgetConfig, RecurringTransaction, Debt, Goal, SpreadsheetRecord } from './types';
 import Dashboard from './components/Dashboard';
 import TransactionList from './components/TransactionList';
@@ -11,14 +11,22 @@ import DebtAdvice from './components/DebtAdvice';
 import Spreadsheet from './components/Spreadsheet';
 import CashflowInference from './components/CashflowInference';
 import TransactionForm from './components/TransactionForm';
+import QuickTransactionForm from './components/QuickTransactionForm';
+import PetSettings from './components/PetSettings';
 import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X } from 'lucide-react';
 import { cn } from './lib/utils';
+import { loadPetSettings, savePetSettings, PetSettings as PetSettingsType } from './lib/petSettings';
+import { FinancePet, isNativePetAvailable, pendingToTransaction } from './lib/petBridge';
+import { computePetFinanceState } from './lib/petFinanceState';
+import { applyLinkedEffects } from './lib/financeRepository';
 
-type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor' | 'spreadsheet';
+type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor' | 'spreadsheet' | 'pet';
 
 export default function App() {
   const [financeTab, setFinanceTab] = useState<FinanceTabType>('overview');
   const [isGlobalAddOpen, setIsGlobalAddOpen] = useState(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [petSettings, setPetSettings] = useState<PetSettingsType>(() => loadPetSettings());
   
   const [monthlyIncome, setMonthlyIncome] = useState<number>(() => {
     const saved = localStorage.getItem('finance_monthly_income');
@@ -126,6 +134,10 @@ export default function App() {
     localStorage.setItem('finance_spreadsheet_records', JSON.stringify(spreadsheetRecords));
   }, [spreadsheetRecords]);
 
+  useEffect(() => {
+    savePetSettings(petSettings);
+  }, [petSettings]);
+
   // Process recurring transactions
   useEffect(() => {
     const now = new Date();
@@ -190,6 +202,98 @@ export default function App() {
       ));
     }
   };
+
+  // Ids already imported from the native queue this session (guards against
+  // a drain racing with a second drain before ack completes).
+  const importedNativeIds = useRef<Set<string>>(new Set());
+
+  /**
+   * Imports transactions captured natively by the pet's QuickAddActivity.
+   * Ids are preserved for idempotent dedupe; linked debt/goal effects go
+   * through the same applyLinkedEffects rules as every other transaction.
+   */
+  const importNativeTransactions = (incoming: Transaction[]) => {
+    const fresh = incoming.filter(t => !importedNativeIds.current.has(t.id));
+    if (fresh.length === 0) return;
+    fresh.forEach(t => importedNativeIds.current.add(t.id));
+    setTransactions(prev => {
+      const existing = new Set(prev.map(t => t.id));
+      return [...fresh.filter(t => !existing.has(t.id)), ...prev];
+    });
+    for (const tx of fresh) {
+      if (tx.linkedDebtId || tx.linkedGoalId) {
+        setDebts(d => applyLinkedEffects(tx, d, []).debts);
+        setGoals(g => applyLinkedEffects(tx, [], g).goals);
+      }
+    }
+  };
+
+  // Pull transactions queued by the native pet whenever the app becomes visible
+  // or the pet notifies us that a new one was saved.
+  useEffect(() => {
+    if (!isNativePetAvailable()) return;
+
+    let cancelled = false;
+    const drainPending = async () => {
+      try {
+        const { transactions: pending } = await FinancePet.getPendingTransactions();
+        if (cancelled || pending.length === 0) return;
+        importNativeTransactions(pending.map(pendingToTransaction));
+        await FinancePet.ackPendingTransactions({ ids: pending.map(p => p.id) });
+      } catch (e) {
+        console.error('Failed to drain pet transactions', e);
+      }
+    };
+
+    drainPending();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') drainPending();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    let listenerHandle: { remove: () => Promise<void> } | undefined;
+    FinancePet.addListener('petEvent', event => {
+      // petTapped / quickExpense / quickIncome are handled natively by
+      // QuickAddActivity (it works even when the WebView is dead), so the
+      // web layer only reacts to sync + navigation events.
+      if (event.kind === 'transactionQueued') drainPending();
+      else if (event.kind === 'openDashboardRequested') {
+        setFinanceTab('overview');
+      } else if (event.kind === 'openPetSettingsRequested') {
+        setFinanceTab('pet');
+      } else if (event.kind === 'petStopped') {
+        setPetSettings(prev => ({ ...prev, enabled: false }));
+      }
+    }).then(h => {
+      listenerHandle = h;
+    });
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
+      listenerHandle?.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Push the computed pet finance state to the native overlay (debounced).
+  // Native never recomputes finance logic — it only renders this result.
+  useEffect(() => {
+    if (!isNativePetAvailable()) return;
+    const timer = setTimeout(() => {
+      const state = computePetFinanceState({
+        transactions,
+        budgets,
+        goals,
+        monthlyIncome,
+        showAmounts: petSettings.showAmounts,
+      });
+      FinancePet.updatePetState({
+        state: { ...state, showAmounts: petSettings.showAmounts, petName: petSettings.petName },
+      }).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [transactions, budgets, goals, monthlyIncome, petSettings.showAmounts, petSettings.petName]);
 
   const deleteTransaction = (id: string) => {
     // Handle Deep Integration Reversal before deleting
@@ -348,6 +452,13 @@ export default function App() {
               >
                 <span className="text-xl">📝</span> <span className="hidden sm:inline">長期試算表</span>
               </button>
+              <button
+                onClick={() => setFinanceTab('pet')}
+                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all",
+                  financeTab === 'pet' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
+              >
+                <span className="text-xl">🐣</span> <span className="hidden sm:inline">桌寵</span>
+              </button>
             </div>
           </div>
         </div>
@@ -404,25 +515,66 @@ export default function App() {
               />
             )}
             {financeTab === 'spreadsheet' && (
-              <Spreadsheet 
+              <Spreadsheet
                 records={spreadsheetRecords}
                 onAdd={addSpreadsheetRecord}
                 onUpdate={updateSpreadsheetRecord}
                 onDelete={deleteSpreadsheetRecord}
               />
             )}
+            {financeTab === 'pet' && (
+              <PetSettings settings={petSettings} onChange={setPetSettings} />
+            )}
           </div>
         </div>
       </main>
 
+      {/* Quick Add Floating Button（極速記帳，同 QuickTransactionForm） */}
+      <button
+        onClick={() => setIsQuickAddOpen(true)}
+        aria-label="快速記帳"
+        className="fixed bottom-[5.5rem] right-6 w-11 h-11 bg-[#E2D8C6] hover:bg-[#d8cbb4] text-[#5C5248] rounded-full flex items-center justify-center shadow-[0_6px_20px_rgba(180,170,160,0.4)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 text-xl"
+      >
+        🐣
+      </button>
+
       {/* Global Floating Action Button */}
-      <button 
+      <button
         onClick={() => setIsGlobalAddOpen(true)}
         className="fixed bottom-6 right-6 w-14 h-14 bg-[#87A2B4] hover:bg-[#87A2B4]/90 text-white rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(135,162,180,0.5)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 group"
       >
         <span className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></span>
         <Plus size={26} />
       </button>
+
+      {/* Quick Add Modal（桌寵 / 極速記帳）：簡化版，仍走同一個 addTransaction */}
+      {isQuickAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-md animate-in fade-in duration-200">
+          <div
+            className="absolute inset-0"
+            onClick={() => setIsQuickAddOpen(false)}
+          />
+          <div className="bg-[#FAF6F0] w-full max-w-md rounded-t-[24px] sm:rounded-[24px] shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-black/5 bg-white/50">
+              <h2 className="font-extrabold text-[#5C5248] text-lg flex items-center gap-2">
+                🐣 今天花多少？
+              </h2>
+              <button
+                onClick={() => setIsQuickAddOpen(false)}
+                className="p-2 text-[#82786D] hover:text-[#5C5248] hover:bg-white rounded-full transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <QuickTransactionForm
+              transactions={transactions}
+              fastMode={petSettings.fastMode}
+              onAddTransaction={addTransaction}
+              onSaved={() => setIsQuickAddOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Global Add Modal */}
       {isGlobalAddOpen && (
