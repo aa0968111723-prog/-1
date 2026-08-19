@@ -115,8 +115,11 @@ warning > … > idle），成功動畫不會被眨眼蓋掉；夜間 (23:00–07
   「暫停 30 分鐘」降低干擾。
 - 本開發環境無法連 dl.google.com（Android SDK / AGP），完整 `gradlew test /
   assembleDebug` 由 GitHub Actions CI 執行並上傳 `app-debug.apk` artifact；
-  純邏輯 Kotlin 測試（29 條）已在 JVM 上通過。實機矩陣見
+  純邏輯 Kotlin 測試（40 條）已在 JVM 上通過。實機矩陣見
   `docs/DEVICE_TEST_CHECKLIST.md`。
+- minSdk 宣告 24，但 API 24/25 的相容路徑（`TYPE_PHONE`、以及 API 26 才有的
+  padding 屬性）沒有在任何 7.x 裝置或模擬器上驗證過。詳見
+  `docs/REAL_DEVICE_TESTING.md` 的「minSdk 24 的特別注意」。
 
 ## 本機建置
 
