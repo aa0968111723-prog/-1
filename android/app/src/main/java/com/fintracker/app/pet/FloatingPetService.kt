@@ -648,9 +648,21 @@ class FloatingPetService : Service() {
 
     private fun applyPetState() {
         val state = runCatching { JSONObject(prefs.petStateJson) }.getOrElse { JSONObject() }
-        stateMachine.baseMood = state.optString("mood", "idle")
+        stateMachine.baseMood = state.optString("mood", PetState.IDLE)
         renderer.setMood(stateMachine.current())
         renderer.setAnimationLevel(effectiveAnimationLevel())
+        (renderer as? DrawablePetRenderer)?.setAccessory(accessoryForLevel(state.optInt("level", 1)))
+    }
+
+    /**
+     * Cosmetics unlocked by the habit level the web layer computes. They are
+     * earned by recording consistently — never by spending less.
+     */
+    private fun accessoryForLevel(level: Int): String? = when {
+        level >= 5 -> "hat"
+        level >= 3 -> "scarf"
+        level >= 2 -> "leaf"
+        else -> null
     }
 
     /** Shown only after a durable write actually succeeded. */
