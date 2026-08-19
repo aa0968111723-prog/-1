@@ -16,6 +16,8 @@ import {
   SpreadsheetRecord,
 } from '../types';
 import { STORAGE_KEYS, loadJSON, saveJSON } from './storage';
+import { getLocalDateKey, monthKeyOf } from './datetime';
+import { addAmounts, subtractAmounts, subtractClampedAtZero, sumAmounts } from './money';
 
 export interface TodaySummary {
   date: string; // YYYY-MM-DD
@@ -104,13 +106,29 @@ export class FinanceRepository {
       const existing = existingList.find(t => t.id === newTx.id);
       if (existing) return existing;
     }
-    const transaction: Transaction = { ...newTx, id: newTx.id ?? crypto.randomUUID() };
-    this.saveTransactions([transaction, ...existingList]);
+    const base: Transaction = { ...newTx, id: newTx.id ?? crypto.randomUUID() };
 
-    const { debts, goals } = applyLinkedEffects(transaction, this.getDebts(), this.getGoals());
+    // Apply debt/goal linkage first so the recorded deltas can be stored on
+    // the transaction itself, making a later delete exactly reversible.
+    const { debts, goals, debtApplied, goalApplied } = applyLinkedEffects(
+      base,
+      this.getDebts(),
+      this.getGoals(),
+    );
+    const transaction: Transaction = {
+      ...base,
+      ...(debtApplied !== undefined ? { linkedDebtApplied: debtApplied } : {}),
+      ...(goalApplied !== undefined ? { linkedGoalApplied: goalApplied } : {}),
+    };
+    this.saveTransactions([transaction, ...existingList]);
     this.saveDebts(debts);
     this.saveGoals(goals);
     return transaction;
+  }
+
+  /** True when a transaction with this id is already in the ledger. */
+  hasTransaction(id: string): boolean {
+    return this.getTransactions().some(t => t.id === id);
   }
 
   deleteTransaction(id: string): void {
@@ -129,67 +147,105 @@ export class FinanceRepository {
   }
 }
 
-/** Debt/goal deep-integration when a transaction is created. */
+export interface LinkedEffectResult {
+  debts: Debt[];
+  goals: Goal[];
+  /** What was actually applied, so a later revert can be exact. */
+  debtApplied?: number;
+  goalApplied?: number;
+}
+
+/**
+ * Debt/goal deep-integration when a transaction is created.
+ *
+ * Balances clamp at zero, so the applied delta can be smaller than the
+ * transaction amount. The caller stores the returned `debtApplied` /
+ * `goalApplied` on the transaction; [revertLinkedEffects] then restores the
+ * previous balance exactly instead of over-crediting on delete.
+ */
 export function applyLinkedEffects(
   tx: Pick<Transaction, 'amount' | 'linkedDebtId' | 'linkedGoalId'>,
   debts: Debt[],
   goals: Goal[],
-): { debts: Debt[]; goals: Goal[] } {
+): LinkedEffectResult {
   let nextDebts = debts;
   let nextGoals = goals;
+  let debtApplied: number | undefined;
+  let goalApplied: number | undefined;
+
   if (tx.linkedDebtId && tx.amount > 0) {
-    nextDebts = debts.map(d =>
-      d.id === tx.linkedDebtId ? { ...d, amount: Math.max(0, d.amount - tx.amount) } : d,
-    );
+    nextDebts = debts.map(d => {
+      if (d.id !== tx.linkedDebtId) return d;
+      const next = subtractClampedAtZero(d.amount, tx.amount);
+      debtApplied = subtractAmounts(d.amount, next); // what the debt actually absorbed
+      return { ...d, amount: next };
+    });
   }
   if (tx.linkedGoalId && tx.amount > 0) {
-    nextGoals = goals.map(g =>
-      g.id === tx.linkedGoalId ? { ...g, currentAmount: g.currentAmount + tx.amount } : g,
-    );
+    nextGoals = goals.map(g => {
+      if (g.id !== tx.linkedGoalId) return g;
+      goalApplied = tx.amount;
+      return { ...g, currentAmount: addAmounts(g.currentAmount, tx.amount) };
+    });
   }
-  return { debts: nextDebts, goals: nextGoals };
+  return { debts: nextDebts, goals: nextGoals, debtApplied, goalApplied };
 }
 
-/** Reverses applyLinkedEffects when a transaction is deleted. */
+/**
+ * Reverses applyLinkedEffects when a transaction is deleted or undone,
+ * using the recorded applied deltas (falling back to `amount` for rows
+ * written before that metadata existed).
+ */
 export function revertLinkedEffects(
-  tx: Pick<Transaction, 'amount' | 'linkedDebtId' | 'linkedGoalId'>,
+  tx: Pick<Transaction, 'amount' | 'linkedDebtId' | 'linkedGoalId' | 'linkedDebtApplied' | 'linkedGoalApplied'>,
   debts: Debt[],
   goals: Goal[],
 ): { debts: Debt[]; goals: Goal[] } {
   let nextDebts = debts;
   let nextGoals = goals;
-  if (tx.linkedDebtId && tx.amount > 0) {
+  const debtDelta = tx.linkedDebtApplied ?? tx.amount;
+  const goalDelta = tx.linkedGoalApplied ?? tx.amount;
+
+  if (tx.linkedDebtId && debtDelta > 0) {
     nextDebts = debts.map(d =>
-      d.id === tx.linkedDebtId ? { ...d, amount: d.amount + tx.amount } : d,
+      d.id === tx.linkedDebtId ? { ...d, amount: addAmounts(d.amount, debtDelta) } : d,
     );
   }
-  if (tx.linkedGoalId && tx.amount > 0) {
+  if (tx.linkedGoalId && goalDelta > 0) {
     nextGoals = goals.map(g =>
-      g.id === tx.linkedGoalId ? { ...g, currentAmount: Math.max(0, g.currentAmount - tx.amount) } : g,
+      g.id === tx.linkedGoalId
+        ? { ...g, currentAmount: subtractClampedAtZero(g.currentAmount, goalDelta) }
+        : g,
     );
   }
   return { debts: nextDebts, goals: nextGoals };
 }
 
-export function toLocalDateString(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+/** @deprecated use getLocalDateKey from ./datetime — kept as a re-export. */
+export const toLocalDateString = getLocalDateKey;
 
 export function computeTodaySummary(transactions: Transaction[], now: Date = new Date()): TodaySummary {
-  const today = toLocalDateString(now);
-  let expenseTotal = 0;
-  let incomeTotal = 0;
-  let count = 0;
+  const today = getLocalDateKey(now);
+  const expenses: number[] = [];
+  const incomes: number[] = [];
   for (const t of transactions) {
     if (t.date !== today) continue;
-    count += 1;
-    if (t.type === 'expense') expenseTotal += t.amount;
-    else incomeTotal += t.amount;
+    if (t.type === 'expense') expenses.push(t.amount);
+    else incomes.push(t.amount);
   }
-  return { date: today, expenseTotal, incomeTotal, count };
+  return {
+    date: today,
+    expenseTotal: sumAmounts(expenses),
+    incomeTotal: sumAmounts(incomes),
+    count: expenses.length + incomes.length,
+  };
+}
+
+/** Exact month total (YYYY-MM), integer-minor summed. */
+export function computeMonthExpense(transactions: Transaction[], monthKey: string): number {
+  return sumAmounts(
+    transactions.filter(t => t.type === 'expense' && monthKeyOf(t.date) === monthKey).map(t => t.amount),
+  );
 }
 
 export const financeRepository = new FinanceRepository();

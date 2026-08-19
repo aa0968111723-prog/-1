@@ -3,6 +3,8 @@ import { RecurringTransaction, Frequency, CATEGORIES, FREQUENCY_LABELS, Transact
 import { Repeat, Trash2, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { formatCurrency, formatDate } from '../lib/formatters';
+import { getLocalDateKey } from '../lib/datetime';
+import { parseAmountInput } from '../lib/money';
 
 interface RecurringSettingsProps {
   recurring: RecurringTransaction[];
@@ -15,7 +17,8 @@ export default function RecurringSettings({ recurring, onAdd, onDelete }: Recurr
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState(CATEGORIES.expense[0]);
   const [frequency, setFrequency] = useState<Frequency>('monthly');
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  // Local date key: the schedule must start on the device's calendar day.
+  const [startDate, setStartDate] = useState(getLocalDateKey());
   const [note, setNote] = useState('');
 
   const handleTypeChange = (newType: TransactionType) => {
@@ -25,11 +28,12 @@ export default function RecurringSettings({ recurring, onAdd, onDelete }: Recurr
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || isNaN(Number(amount))) return;
-    
+    const parsedAmount = parseAmountInput(amount);
+    if (parsedAmount === null) return;
+
     onAdd({
       type,
-      amount: Number(amount),
+      amount: parsedAmount,
       category,
       frequency,
       startDate,

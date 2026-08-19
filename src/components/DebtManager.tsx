@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Debt, Transaction, DebtType, DEBT_TYPE_LABELS } from '../types';
 import { Plus, Trash2, CreditCard, Landmark, Check, Clock, AlertTriangle, FileText, PieChart as PieChartIcon } from 'lucide-react';
 import { formatCurrency } from '../lib/formatters';
+import { getLocalDateKey } from '../lib/datetime';
+import { parseAmountInput } from '../lib/money';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 
 interface Props {
@@ -48,13 +50,17 @@ export default function DebtManager({ debts, onAdd, onDelete, onUpdate, onAddTra
     e.preventDefault();
     if (!name || !amount) return;
 
+    const parsedAmount = parseAmountInput(amount);
+    if (parsedAmount === null) return;
+
     onAdd({
       name,
       type: debtType,
-      amount: Number(amount),
-      initialAmount: Number(amount),
+      amount: parsedAmount,
+      initialAmount: parsedAmount,
       interestRate: Number(interestRate) || 0,
-      monthlyPayment: Number(monthlyPayment) || 0,
+      // an empty or zero field legitimately means "no fixed monthly payment"
+      monthlyPayment: parseAmountInput(monthlyPayment) ?? 0,
       dueDate,
       note
     });
@@ -69,15 +75,16 @@ export default function DebtManager({ debts, onAdd, onDelete, onUpdate, onAddTra
   };
 
   const handleQuickRepay = (debtId: string, currentAmount: number) => {
-    if (!onAddTransaction || !repayAmount || isNaN(Number(repayAmount))) return;
-    const amount = Number(repayAmount);
-    if (amount <= 0 || amount > currentAmount) return;
+    if (!onAddTransaction) return;
+    const amount = parseAmountInput(repayAmount);
+    if (amount === null || amount > currentAmount) return;
 
     onAddTransaction({
       type: 'expense',
       amount,
       category: 'Loan Repayments',
-      date: new Date().toISOString().split('T')[0],
+      // local date key: a UTC key files an evening repayment under tomorrow
+      date: getLocalDateKey(),
       note: '快速還款',
       linkedDebtId: debtId,
     });
@@ -395,7 +402,7 @@ export default function DebtManager({ debts, onAdd, onDelete, onUpdate, onAddTra
                             type: 'expense',
                             amount: amountToRepay,
                             category: 'Loan Repayments',
-                            date: new Date().toISOString().split('T')[0],
+                            date: getLocalDateKey(),
                             note: '每月還款',
                             linkedDebtId: debt.id,
                           });

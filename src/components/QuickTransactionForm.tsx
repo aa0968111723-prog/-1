@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Transaction, TransactionType, CATEGORIES, PaymentMethod, PAYMENT_METHODS } from '../types';
+import { Transaction, TransactionType, PaymentMethod } from '../types';
 import { getQuickCategories, QuickCategoryChip, CATEGORY_EMOJI } from '../lib/quickCategories';
+import { listCategories } from '../lib/categoryRegistry';
+import { listEnabledPaymentMethods } from '../lib/paymentMethods';
 import { parseQuickEntry } from '../lib/quickParser';
 import { loadJSON, STORAGE_KEYS } from '../lib/storage';
-import { toLocalDateString } from '../lib/financeRepository';
+import { getLocalDateKey } from '../lib/datetime';
+import { parseAmountInput } from '../lib/money';
 import { cn } from '../lib/utils';
-import { MessageSquareText, ChevronDown, ChevronUp } from 'lucide-react';
+import { MessageSquareText, ChevronUp } from 'lucide-react';
 
 interface QuickTransactionFormProps {
   transactions: Transaction[];
@@ -31,6 +34,7 @@ export default function QuickTransactionForm({
   const [amount, setAmount] = useState('');
   const [selectedChip, setSelectedChip] = useState<QuickCategoryChip | null>(null);
   const [nlText, setNlText] = useState('');
+  const [nlHint, setNlHint] = useState('');
   const [showMore, setShowMore] = useState(false);
   const [moreCategory, setMoreCategory] = useState('');
   const [note, setNote] = useState('');
@@ -47,22 +51,34 @@ export default function QuickTransactionForm({
   }, []);
 
   const chips = useMemo(() => getQuickCategories(transactions, type), [transactions, type]);
+  const allCategories = useMemo(() => listCategories(type), [type]);
+  const paymentOptions = useMemo(() => listEnabledPaymentMethods(), []);
 
-  const amountNumber = Number(amount);
-  const amountValid = amount !== '' && Number.isFinite(amountNumber) && amountNumber > 0;
+  const parsedAmount = parseAmountInput(amount);
+  const amountValid = parsedAmount !== null;
+  // Guards a double tap on 記下來 from writing the same entry twice.
+  const submittingRef = useRef(false);
 
   const submit = (chip: QuickCategoryChip | null, overrides?: Partial<Omit<Transaction, 'id'>>) => {
+    if (submittingRef.current) return;
     const category = overrides?.category ?? chip?.category ?? moreCategory;
-    const finalAmount = overrides?.amount ?? amountNumber;
-    if (!category || !Number.isFinite(finalAmount) || finalAmount <= 0) return;
-    onAddTransaction({
-      type: overrides?.type ?? type,
-      amount: finalAmount,
-      category,
-      date: overrides?.date ?? toLocalDateString(new Date()),
-      note: overrides?.note ?? (note || chip?.note || ''),
-      paymentMethod: (overrides?.paymentMethod as PaymentMethod) ?? paymentMethod,
-    });
+    const finalAmount = overrides?.amount ?? parsedAmount;
+    if (!category || finalAmount === null || !Number.isFinite(finalAmount) || finalAmount <= 0) return;
+    submittingRef.current = true;
+    try {
+      onAddTransaction({
+        type: overrides?.type ?? type,
+        amount: finalAmount,
+        category,
+        categoryId: overrides?.categoryId ?? chip?.categoryId,
+        date: overrides?.date ?? getLocalDateKey(),
+        note: overrides?.note ?? (note || chip?.note || ''),
+        paymentMethod: (overrides?.paymentMethod as PaymentMethod) ?? paymentMethod,
+        source: overrides?.source ?? 'web_quick_add',
+      });
+    } finally {
+      submittingRef.current = false;
+    }
     setAmount('');
     setNote('');
     setNlText('');
@@ -81,27 +97,37 @@ export default function QuickTransactionForm({
 
   const handleNlSubmit = () => {
     const parsed = parseQuickEntry(nlText);
-    if (parsed.amount === null) return;
-    if (parsed.confidence === 'high') {
+    if (parsed.amount === null) {
+      setNlHint('沒讀到金額，請直接輸入數字');
+      return;
+    }
+    setNlHint('');
+    if (parsed.confidence === 'high' && parsed.category) {
       submit(null, {
         type: parsed.type,
         amount: parsed.amount,
         category: parsed.category,
+        categoryId: parsed.categoryId ?? undefined,
+        date: parsed.date,
         note: parsed.note,
+        source: 'web_nl',
         ...(parsed.paymentMethod ? { paymentMethod: parsed.paymentMethod } : {}),
       });
       return;
     }
-    // 低信心：填入表單讓使用者確認，不直接寫入
+    // 分類不確定時絕不亂猜：把讀到的部分填進表單，讓使用者選分類再送出。
     setType(parsed.type);
     setAmount(String(parsed.amount));
     setNote(parsed.note);
     if (parsed.paymentMethod) setPaymentMethod(parsed.paymentMethod);
-    const chip = chips.find(c => c.category === parsed.category && !c.note) ?? null;
+    const chip = parsed.categoryId
+      ? chips.find(c => c.categoryId === parsed.categoryId && !c.note) ?? null
+      : null;
     setSelectedChip(chip);
     if (!chip) {
-      setShowMore(true);
-      setMoreCategory(parsed.category);
+      setMoreCategory(parsed.categoryId ? parsed.category : '');
+      if (parsed.categoryId) setShowMore(true);
+      setNlHint('分類：請選擇');
     }
   };
 
@@ -190,9 +216,9 @@ export default function QuickTransactionForm({
             className="w-full px-4 py-2.5 bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none appearance-none"
           >
             <option value="">選擇分類…</option>
-            {CATEGORIES[type].map(c => (
-              <option key={c} value={c}>
-                {CATEGORY_EMOJI[c] ?? ''} {c}
+            {allCategories.map(c => (
+              <option key={c.id} value={c.label}>
+                {c.emoji ?? CATEGORY_EMOJI[c.label] ?? ''} {c.label}
               </option>
             ))}
           </select>
@@ -209,9 +235,9 @@ export default function QuickTransactionForm({
             aria-label="支付方式"
             className="w-full px-4 py-2.5 bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none appearance-none"
           >
-            {Object.entries(PAYMENT_METHODS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
+            {paymentOptions.map(pm => (
+              <option key={pm.id} value={pm.id}>
+                {pm.emoji} {pm.label}
               </option>
             ))}
           </select>
@@ -229,7 +255,7 @@ export default function QuickTransactionForm({
             onKeyDown={e => {
               if (e.key === 'Enter') handleNlSubmit();
             }}
-            placeholder="快速說：午餐120"
+            placeholder="快速說：午餐120、昨天晚餐180"
             aria-label="自然語言記帳"
             className="w-full pl-9 pr-3 py-2.5 text-sm bg-white/60 border border-black/5 text-[#5C5248] font-bold placeholder-[#82786D]/40 rounded-xl outline-none focus:ring-2 focus:ring-[#87A2B4]/40"
           />
@@ -243,6 +269,11 @@ export default function QuickTransactionForm({
           解析
         </button>
       </div>
+      {nlHint && (
+        <p role="status" className="text-xs font-bold text-[#C08A5A] -mt-2">
+          {nlHint}
+        </p>
+      )}
 
       {/* 記下來 */}
       <button

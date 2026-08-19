@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { Transaction, Debt, RecurringTransaction, BudgetConfig } from '../types';
 import { formatCurrency } from '../lib/formatters';
+import { getLocalDateKey, parseLocalDateKey } from '../lib/datetime';
+import { formatMoneyCompact } from '../lib/money';
 import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, BellRing, CalendarClock, MailOpen, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { cn } from '../lib/utils';
@@ -71,13 +73,13 @@ export default function Dashboard({ transactions, budgets, debts = [], recurring
     const topExpenses = [...currentMonthTx].sort((a, b) => b.amount - a.amount).slice(0, 3);
 
     // Calculate upcoming recurring transactions (within 3 days) for Daily Digest
-    const today = new Date();
-    today.setHours(0,0,0,0);
+    // Both sides must be LOCAL midnight: new Date('YYYY-MM-DD') is UTC midnight,
+    // which lands on the previous/next local day and skews the day count.
+    const today = parseLocalDateKey(getLocalDateKey());
     const upcoming = recurring.map(rt => {
-      const nextD = new Date(rt.nextDate);
-      nextD.setHours(0,0,0,0);
+      const nextD = parseLocalDateKey(rt.nextDate);
       const diffTime = nextD.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
       return { ...rt, daysLeft: diffDays };
     }).filter(rt => rt.daysLeft >= 0 && rt.daysLeft <= 3)
       .sort((a,b) => a.daysLeft - b.daysLeft);
@@ -248,7 +250,7 @@ export default function Dashboard({ transactions, budgets, debts = [], recurring
             <BarChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }} barGap={2} barSize={20}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EAE4DB" vertical={false} />
               <XAxis dataKey="name" stroke="#82786D" fontSize={10} tickMargin={10} />
-              <YAxis stroke="#82786D" fontSize={10} tickFormatter={(val) => `NT$${val}`} width={60} />
+              <YAxis stroke="#82786D" fontSize={10} tickFormatter={(val) => formatMoneyCompact(val)} width={60} />
               <Tooltip 
                 cursor={{ fill: 'rgba(180,170,160,0.05)' }}
                 contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', backdropFilter: 'blur(10px)', border: '1px solid rgba(230, 225, 215, 0.8)', borderRadius: '12px' }}

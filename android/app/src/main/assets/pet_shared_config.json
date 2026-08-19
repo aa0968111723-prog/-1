@@ -41,10 +41,16 @@
     ]
   },
   "paymentMethods": [
-    { "id": "cash", "label": "現金" },
-    { "id": "credit", "label": "信用卡" },
-    { "id": "bank", "label": "銀行轉帳" },
-    { "id": "mobile", "label": "行動支付" }
+    { "id": "cash", "label": "現金", "emoji": "💵" },
+    { "id": "easycard", "label": "悠遊卡", "emoji": "🚇" },
+    { "id": "credit", "label": "信用卡", "emoji": "💳" },
+    { "id": "debit", "label": "金融卡", "emoji": "🏧" },
+    { "id": "linepay", "label": "LINE Pay", "emoji": "📱" },
+    { "id": "jkopay", "label": "街口支付", "emoji": "🟠" },
+    { "id": "wallet", "label": "手機錢包", "emoji": "⌚" },
+    { "id": "mobile", "label": "行動支付", "emoji": "📲" },
+    { "id": "bank", "label": "銀行轉帳", "emoji": "🏦" },
+    { "id": "other", "label": "其他", "emoji": "🧾" }
   ],
   "parser": {
     "expenseKeywords": {
@@ -64,10 +70,24 @@
       "other_income": ["收入", "入帳", "退款", "賣"]
     },
     "paymentKeywords": {
-      "mobile": ["悠遊卡", "一卡通", "LinePay", "linepay", "Line Pay", "街口", "Apple Pay", "applepay", "行動支付"],
-      "credit": ["刷卡", "信用卡"],
-      "bank": ["轉帳", "匯款"],
-      "cash": ["現金", "付現"]
-    }
+      "easycard": ["悠遊卡", "一卡通", "悠遊付"],
+      "linepay": ["LinePay", "linepay", "Line Pay", "line pay", "LINE Pay"],
+      "jkopay": ["街口", "街口支付"],
+      "wallet": ["Apple Pay", "applepay", "Google Pay", "googlepay", "手機錢包"],
+      "credit": ["刷卡", "信用卡", "刷"],
+      "debit": ["金融卡", "簽帳卡", "debit"],
+      "bank": ["轉帳", "匯款", "ATM", "atm"],
+      "cash": ["現金", "付現"],
+      "mobile": ["行動支付"]
+    },
+    "merchantKeywords": {
+      "food": ["麥當勞", "肯德基", "摩斯", "Subway", "subway", "星巴克", "路易莎", "五十嵐", "清心", "迷客夏", "鼎泰豐", "爭鮮"],
+      "shopping": ["全聯", "家樂福", "大潤發", "好市多", "Costco", "costco", "屈臣氏", "康是美", "寶雅", "IKEA", "ikea"],
+      "home": ["特力屋", "宜得利"],
+      "utilities": ["中華電信", "台電", "自來水", "遠傳", "台灣大哥大"],
+      "transport": ["台灣高鐵", "台鐵", "中油", "台亞", "全國加油"],
+      "entertainment": ["威秀", "國賓影城", "新光影城", "Steam", "steam"]
+    },
+    "convenienceStoreKeywords": ["7-11", "711", "seven", "小七", "全家", "萊爾富", "OK超商"]
   }
 }

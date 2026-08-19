@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Goal, Transaction, Debt, BudgetConfig } from '../types';
 import { Plus, Trash2, Target, PiggyBank, Check, Calendar, TrendingUp, AlertTriangle, Lightbulb } from 'lucide-react';
 import { formatCurrency } from '../lib/formatters';
+import { getLocalDateKey, parseLocalDateKey } from '../lib/datetime';
+import { parseAmountInput } from '../lib/money';
 import { cn } from '../lib/utils';
 import { useMemo } from 'react';
 
@@ -76,9 +78,10 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
     goals.forEach(goal => {
       const isCompleted = goal.currentAmount >= goal.targetAmount;
       if (goal.targetDate && !isCompleted) {
-        const target = new Date(goal.targetDate);
+        // targetDate is a YYYY-MM-DD key: new Date(key) parses it as UTC
+        // midnight, which is the previous local day in negative offsets.
+        const target = parseLocalDateKey(goal.targetDate);
         const now = new Date();
-        target.setHours(0, 0, 0, 0);
         now.setHours(0, 0, 0, 0);
         const diffTime = target.getTime() - now.getTime();
         const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -107,9 +110,12 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
     e.preventDefault();
     if (!name || !targetAmount) return;
 
+    const parsedTarget = parseAmountInput(targetAmount);
+    if (parsedTarget === null) return;
+
     onAdd({
       name,
-      targetAmount: Number(targetAmount),
+      targetAmount: parsedTarget,
       currentAmount: 0,
       targetDate
     });
@@ -120,9 +126,9 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
   };
 
   const handleTransaction = (goalId: string, currentAmount: number, isDeposit: boolean) => {
-    if (!onUpdate || !transactionAmount || isNaN(Number(transactionAmount))) return;
-    const amount = Number(transactionAmount);
-    if (amount <= 0) return;
+    if (!onUpdate) return;
+    const amount = parseAmountInput(transactionAmount);
+    if (amount === null) return;
 
     let newAmount = currentAmount;
     if (isDeposit) {
@@ -140,7 +146,8 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
         type: isDeposit ? 'expense' : 'income', // Expense from wallet to goal, Income from goal back to wallet
         amount,
         category: 'Investments',
-        date: new Date().toISOString().split('T')[0],
+        // local date key: a UTC key files an evening entry under tomorrow
+        date: getLocalDateKey(),
         note: transactionNote || (isDeposit ? '存入目標' : '目標提領'),
         linkedGoalId: goalId,
       });
@@ -151,9 +158,8 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
   };
 
   const handleUpdateGoalInfo = (goalId: string, currentAmount: number) => {
-    if (!editAmount || isNaN(Number(editAmount))) return;
-    const targetAmt = Number(editAmount);
-    if (targetAmt <= 0 || targetAmt < currentAmount) return; // Prevent setting target lower than current
+    const targetAmt = parseAmountInput(editAmount);
+    if (targetAmt === null || targetAmt < currentAmount) return; // Prevent setting target lower than current
     
     onUpdate(goalId, {
       targetAmount: targetAmt,
@@ -272,11 +278,12 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
           let suggestedMonthly = 0;
 
           if (goal.targetDate && !isCompleted) {
-            const target = new Date(goal.targetDate);
+            // parse the YYYY-MM-DD key as local midnight, so the day count is
+            // not off by one in negative-offset timezones
+            const target = parseLocalDateKey(goal.targetDate);
             const now = new Date();
-            target.setHours(0, 0, 0, 0);
             now.setHours(0, 0, 0, 0);
-            
+
             const diffTime = target.getTime() - now.getTime();
             daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             

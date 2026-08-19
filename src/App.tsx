@@ -18,7 +18,8 @@ import { cn } from './lib/utils';
 import { loadPetSettings, savePetSettings, PetSettings as PetSettingsType } from './lib/petSettings';
 import { FinancePet, isNativePetAvailable, pendingToTransaction } from './lib/petBridge';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
-import { applyLinkedEffects } from './lib/financeRepository';
+import { financeRepository } from './lib/financeRepository';
+import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
 import { getQuickCategories } from './lib/quickCategories';
 
 type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor' | 'spreadsheet' | 'pet';
@@ -144,69 +145,71 @@ export default function App() {
     savePetSettings(petSettings);
   }, [petSettings]);
 
-  // Process recurring transactions
-  useEffect(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    
-    let hasUpdates = false;
-    const nextRecurring = [...recurring];
-    const newTransactions: Transaction[] = [];
+  /**
+   * Re-reads the ledger from storage into React state.
+   *
+   * The repository is authoritative for transactions/debts/goals: every
+   * mutation writes storage first and then mirrors it here, so the UI can
+   * never hold a version that storage does not have (and a crash can never
+   * land between the two).
+   */
+  const syncFromRepository = () => {
+    setTransactions(financeRepository.getTransactions());
+    setDebts(financeRepository.getDebts());
+    setGoals(financeRepository.getGoals());
+  };
 
-    nextRecurring.forEach(rt => {
-      while (rt.nextDate <= todayStr) {
-        // Add transaction
-        newTransactions.push({
-          id: crypto.randomUUID(),
+  /**
+   * Materialises due recurring transactions.
+   *
+   * Ids are DETERMINISTIC (`recurring:<ruleId>:<dateKey>`) and writes go
+   * through the repository, which is idempotent on id — so a re-run (React
+   * StrictMode double-invoke, a remount, or a migration replay) can never
+   * generate the same instalment twice. Dates are local calendar dates.
+   */
+  useEffect(() => {
+    const todayStr = getLocalDateKey();
+    let hasUpdates = false;
+
+    const nextRecurring = recurring.map(rt => {
+      let cursor = rt.nextDate;
+      let guard = 0;
+      while (cursor <= todayStr && guard < 1000) {
+        guard += 1;
+        financeRepository.addTransaction({
+          id: `recurring:${rt.id}:${cursor}`,
           type: rt.type,
           amount: rt.amount,
           category: rt.category,
-          date: rt.nextDate,
+          date: cursor,
           note: `${rt.note}${rt.note ? ' ' : ''}(自動記帳)`,
+          source: 'recurring',
         });
-
-        // Calculate next date
-        const nextDateObj = new Date(rt.nextDate);
-        if (rt.frequency === 'daily') nextDateObj.setDate(nextDateObj.getDate() + 1);
-        else if (rt.frequency === 'weekly') nextDateObj.setDate(nextDateObj.getDate() + 7);
-        else if (rt.frequency === 'monthly') nextDateObj.setMonth(nextDateObj.getMonth() + 1);
-        else if (rt.frequency === 'yearly') nextDateObj.setFullYear(nextDateObj.getFullYear() + 1);
-
-        rt.nextDate = nextDateObj.toISOString().split('T')[0];
+        const next = parseLocalDateKey(cursor);
+        if (rt.frequency === 'daily') next.setDate(next.getDate() + 1);
+        else if (rt.frequency === 'weekly') next.setDate(next.getDate() + 7);
+        else if (rt.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+        else if (rt.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
+        cursor = getLocalDateKey(next);
         hasUpdates = true;
       }
+      return cursor === rt.nextDate ? rt : { ...rt, nextDate: cursor };
     });
 
     if (hasUpdates) {
-      setTransactions(prev => [...newTransactions, ...prev]);
+      syncFromRepository();
       setRecurring(nextRecurring);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recurring]);
 
   const addTransaction = (newTx: Omit<Transaction, 'id'>): Transaction => {
-    const transaction = {
+    const transaction = financeRepository.addTransaction({
       ...newTx,
-      id: crypto.randomUUID(),
-    };
-    setTransactions(prev => [transaction, ...prev]);
-
-    // Handle Deep Integration: Deduct from linked debt
-    if (newTx.linkedDebtId && newTx.amount > 0) {
-      setDebts(prev => prev.map(debt => 
-        debt.id === newTx.linkedDebtId 
-          ? { ...debt, amount: Math.max(0, debt.amount - newTx.amount) } 
-          : debt
-      ));
-    }
-
-    // Handle Deep Integration: Add to linked goal
-    if (newTx.linkedGoalId && newTx.amount > 0) {
-      setGoals(prev => prev.map(goal =>
-        goal.id === newTx.linkedGoalId
-          ? { ...goal, currentAmount: goal.currentAmount + newTx.amount }
-          : goal
-      ));
-    }
+      source: newTx.source ?? 'web',
+      createdAt: newTx.createdAt ?? new Date().toISOString(),
+    });
+    syncFromRepository();
     return transaction;
   };
 
@@ -225,28 +228,33 @@ export default function App() {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   };
 
-  // Ids already imported from the native queue this session (guards against
-  // a drain racing with a second drain before ack completes).
-  const importedNativeIds = useRef<Set<string>>(new Set());
-
   /**
-   * Imports transactions captured natively by the pet's QuickAddActivity.
-   * Ids are preserved for idempotent dedupe; linked debt/goal effects go
-   * through the same applyLinkedEffects rules as every other transaction.
+   * Drains the native outbox into the ledger.
+   *
+   * Ordering is the whole point: each entry is written to persistent storage
+   * FIRST (idempotently, keyed by the id the native side generated), the UI
+   * is refreshed from storage, and only then is the entry acked away from the
+   * outbox. A crash at any point can therefore only cause a replay — which
+   * the id-keyed insert absorbs — never a lost entry.
    */
-  const importNativeTransactions = (incoming: Transaction[]) => {
-    const fresh = incoming.filter(t => !importedNativeIds.current.has(t.id));
-    if (fresh.length === 0) return;
-    fresh.forEach(t => importedNativeIds.current.add(t.id));
-    setTransactions(prev => {
-      const existing = new Set(prev.map(t => t.id));
-      return [...fresh.filter(t => !existing.has(t.id)), ...prev];
-    });
-    for (const tx of fresh) {
-      if (tx.linkedDebtId || tx.linkedGoalId) {
-        setDebts(d => applyLinkedEffects(tx, d, []).debts);
-        setGoals(g => applyLinkedEffects(tx, [], g).goals);
+  const drainNativeOutbox = async () => {
+    const { transactions: pending } = await FinancePet.getPendingTransactions();
+    if (pending.length === 0) return;
+
+    const persistedIds: string[] = [];
+    for (const entry of pending) {
+      const tx = pendingToTransaction(entry);
+      try {
+        financeRepository.addTransaction(tx);
+        // Confirm it really is on disk before we allow the outbox to forget it.
+        if (financeRepository.hasTransaction(tx.id)) persistedIds.push(tx.id);
+      } catch (e) {
+        console.error('[FinancePet.Sync] failed to persist pet transaction', e);
       }
+    }
+    syncFromRepository();
+    if (persistedIds.length > 0) {
+      await FinancePet.ackPendingTransactions({ ids: persistedIds });
     }
   };
 
@@ -257,13 +265,11 @@ export default function App() {
 
     let cancelled = false;
     const drainPending = async () => {
+      if (cancelled) return;
       try {
-        const { transactions: pending } = await FinancePet.getPendingTransactions();
-        if (cancelled || pending.length === 0) return;
-        importNativeTransactions(pending.map(pendingToTransaction));
-        await FinancePet.ackPendingTransactions({ ids: pending.map(p => p.id) });
+        await drainNativeOutbox();
       } catch (e) {
-        console.error('Failed to drain pet transactions', e);
+        console.error('[FinancePet.Sync] drain failed', e);
       }
     };
 
@@ -280,11 +286,10 @@ export default function App() {
       // web layer only reacts to sync + navigation events.
       if (event.kind === 'transactionQueued') drainPending();
       else if (event.kind === 'transactionUndone' && event.id) {
-        // The user undid a native quick add within the undo window; if we
-        // already drained it, remove the same id here too.
-        const undoneId = event.id;
-        setTransactions(prev => prev.filter(t => t.id !== undoneId));
-        importedNativeIds.current.delete(undoneId);
+        // The user undid a native quick add within its undo window; if we had
+        // already drained it, roll it back here too (debt/goal linkage included).
+        financeRepository.deleteTransaction(event.id);
+        syncFromRepository();
       } else if (event.kind === 'openDashboardRequested') {
         setFinanceTab('overview');
       } else if (event.kind === 'openPetSettingsRequested') {
@@ -346,27 +351,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Deletes through the repository so the debt/goal reversal uses the exact
+   * applied deltas recorded at write time (a balance that clamped at zero is
+   * restored to what it was, not over-credited).
+   */
   const deleteTransaction = (id: string) => {
-    // Handle Deep Integration Reversal before deleting
-    const txToDelete = transactions.find(t => t.id === id);
-    if (txToDelete) {
-      if (txToDelete.linkedDebtId && txToDelete.amount > 0) {
-        setDebts(prev => prev.map(debt => 
-          debt.id === txToDelete.linkedDebtId 
-            ? { ...debt, amount: debt.amount + txToDelete.amount } 
-            : debt
-        ));
-      }
-      if (txToDelete.linkedGoalId && txToDelete.amount > 0) {
-        setGoals(prev => prev.map(goal => 
-          goal.id === txToDelete.linkedGoalId 
-            ? { ...goal, currentAmount: Math.max(0, goal.currentAmount - txToDelete.amount) } 
-            : goal
-        ));
-      }
-    }
-
-    setTransactions(prev => prev.filter(t => t.id !== id));
+    financeRepository.deleteTransaction(id);
+    syncFromRepository();
   };
 
   const updateBudget = (category: string, config: BudgetConfig) => {
@@ -397,28 +389,41 @@ export default function App() {
     setRecurring(prev => prev.filter(r => r.id !== id));
   };
 
+  // Debts and goals also go through the repository (storage first, then
+  // mirror into state) so a background outbox drain can never read a stale
+  // snapshot and write it back over a fresh edit.
   const addDebt = (debt: Omit<Debt, 'id'>) => {
-    setDebts(prev => [{ ...debt, id: crypto.randomUUID() }, ...prev]);
+    financeRepository.saveDebts([{ ...debt, id: crypto.randomUUID() }, ...financeRepository.getDebts()]);
+    syncFromRepository();
   };
 
   const deleteDebt = (id: string) => {
-    setDebts(prev => prev.filter(d => d.id !== id));
+    financeRepository.saveDebts(financeRepository.getDebts().filter(d => d.id !== id));
+    syncFromRepository();
   };
 
   const updateDebt = (id: string, updates: Partial<Debt>) => {
-    setDebts(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+    financeRepository.saveDebts(
+      financeRepository.getDebts().map(d => (d.id === id ? { ...d, ...updates } : d)),
+    );
+    syncFromRepository();
   };
 
   const addGoal = (goal: Omit<Goal, 'id'>) => {
-    setGoals(prev => [{ ...goal, id: crypto.randomUUID() }, ...prev]);
+    financeRepository.saveGoals([{ ...goal, id: crypto.randomUUID() }, ...financeRepository.getGoals()]);
+    syncFromRepository();
   };
 
   const deleteGoal = (id: string) => {
-    setGoals(prev => prev.filter(g => g.id !== id));
+    financeRepository.saveGoals(financeRepository.getGoals().filter(g => g.id !== id));
+    syncFromRepository();
   };
 
   const updateGoal = (id: string, updates: Partial<Goal>) => {
-    setGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+    financeRepository.saveGoals(
+      financeRepository.getGoals().map(g => (g.id === id ? { ...g, ...updates } : g)),
+    );
+    syncFromRepository();
   };
 
   const addSpreadsheetRecord = (record: Omit<SpreadsheetRecord, 'id'>) => {

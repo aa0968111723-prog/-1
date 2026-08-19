@@ -2,6 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Debt, Transaction, BudgetConfig, RecurringTransaction, Goal } from '../types';
 import { Lightbulb, Heart, ShieldAlert, Sparkles, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getLocalMonthKey } from '../lib/datetime';
+import { formatMoney } from '../lib/money';
 
 interface Props {
   debts: Debt[];
@@ -47,7 +49,10 @@ export default function DebtAdvice({ debts, monthlyIncome, transactions, budgets
     const highInterestDebts = debts.filter(d => (d.interestRate || 0) > 8);
 
     // 2. Spending & Budget Analysis
-    const currentMonthPrefix = new Date().toISOString().substring(0, 7);
+    // Must be the LOCAL month: toISOString() is UTC, so on the last day of a
+    // month in UTC+8 after 16:00 local it rolls to the next month and the
+    // "this month" filters below silently return 0.
+    const currentMonthPrefix = getLocalMonthKey();
     const thisMonthExpenses = transactions
       .filter(t => t.type === 'expense' && t.date.startsWith(currentMonthPrefix))
       .reduce((sum, t) => sum + t.amount, 0);
@@ -83,16 +88,16 @@ export default function DebtAdvice({ debts, monthlyIncome, transactions, budgets
         id: 'income-survival',
         type: 'warning',
         category: '收入',
-        title: `目標月薪建議：至少需達 ${Math.ceil(minimumSurvivalIncome).toLocaleString()} 元`,
-        desc: `您目前的固定開銷與還款總額約為 ${Math.ceil(expectedOutflow).toLocaleString()} 元。要達到收支平衡，您目前的薪水或兼職收入必須至少達到這個基本門檻。趁現在積極尋找高時薪兼職或評估轉職機會！`
+        title: `目標月薪建議：至少需達 ${formatMoney(Math.ceil(minimumSurvivalIncome))}`,
+        desc: `您目前的固定開銷與還款總額約為 ${formatMoney(Math.ceil(expectedOutflow))}。要達到收支平衡，您目前的薪水或兼職收入必須至少達到這個基本門檻。趁現在積極尋找高時薪兼職或評估轉職機會！`
       });
     } else if (actualMonthlyIncome < safeIncomeTarget && expectedOutflow > 0) {
       suggestions.push({
         id: 'income-growth',
         type: 'info',
         category: '收入',
-        title: `進階月薪目標：朝 ${Math.ceil(safeIncomeTarget).toLocaleString()} 元邁進`,
-        desc: `為了擁有健康的財務體質（將開銷控制在 70% 以內，保留 30% 儲蓄與投資空間），建議您的目標月收入應達到 ${Math.ceil(safeIncomeTarget).toLocaleString()} 元。持續投資自己，提升職場競爭力吧！`
+        title: `進階月薪目標：朝 ${formatMoney(Math.ceil(safeIncomeTarget))} 邁進`,
+        desc: `為了擁有健康的財務體質（將開銷控制在 70% 以內，保留 30% 儲蓄與投資空間），建議您的目標月收入應達到 ${formatMoney(Math.ceil(safeIncomeTarget))}。持續投資自己，提升職場競爭力吧！`
       });
     } else if (actualMonthlyIncome >= safeIncomeTarget && expectedOutflow > 0) {
       suggestions.push({
@@ -160,7 +165,7 @@ export default function DebtAdvice({ debts, monthlyIncome, transactions, budgets
         type: 'warning',
         category: '收支',
         title: '每月入不敷出',
-        desc: `您的月支出加還款超過了月收入 (缺口: ${Math.abs(cashflowMargin).toLocaleString()})！請立即檢視本月不必要的開銷（飲料、外食、娛樂），並積極尋找兼職、外包工作增加開源。`
+        desc: `您的月支出加還款超過了月收入 (缺口: ${formatMoney(Math.abs(cashflowMargin))})！請立即檢視本月不必要的開銷（飲料、外食、娛樂），並積極尋找兼職、外包工作增加開源。`
       });
     } else if (marginRatio < 10) {
       suggestions.push({
@@ -251,7 +256,7 @@ export default function DebtAdvice({ debts, monthlyIncome, transactions, budgets
           <div className="flex flex-wrap gap-2">
             {analysis.cashflowMargin !== 0 && (
               <div className="text-[11px] font-bold px-3 py-1.5 bg-white rounded-xl border border-black/5 shadow-sm">
-                預估月結餘: <span className={cn(analysis.cashflowMargin >= 0 ? "text-[#769C7C]" : "text-[#CD7A70]")}>{analysis.cashflowMargin > 0 ? '+' : ''}{analysis.cashflowMargin.toLocaleString()}</span>
+                預估月結餘: <span className={cn(analysis.cashflowMargin >= 0 ? "text-[#769C7C]" : "text-[#CD7A70]")}>{analysis.cashflowMargin > 0 ? '+' : ''}{formatMoney(analysis.cashflowMargin)}</span>
               </div>
             )}
             {analysis.totalDebt > 0 && (

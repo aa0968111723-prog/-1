@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Transaction, Debt, Goal, PAYMENT_METHODS } from '../types';
 import { formatCurrency, formatDate } from '../lib/formatters';
+import { getLocalDateKey } from '../lib/datetime';
 import { Coffee, ShoppingBag, Home, Zap, HeartPulse, MoreHorizontal, Briefcase, Gift, ArrowDownRight, Bus, BookOpen, Gamepad2, TrendingUp, Search, Filter, Landmark, Plus, Link as LinkIcon, Wallet } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -97,7 +98,7 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `transaction_history_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `transaction_history_${getLocalDateKey()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -128,7 +129,9 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
     return acc;
   }, {} as Record<string, Transaction[]>);
 
-  const sortedDates = Object.keys(grouped).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  // Keys are "YYYY-MM-DD", so lexicographic order matches chronological order.
+  // Comparing strings avoids new Date(key) parsing the key as UTC midnight.
+  const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
   return (
     <div className="glass overflow-hidden shadow-sm">
