@@ -2,6 +2,7 @@ package com.fintracker.app.pet
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.view.HapticFeedbackConstants
@@ -55,11 +56,13 @@ class QuickAddActivity : AppCompatActivity() {
     private lateinit var undoBar: View
 
     private var lastSavedId: String? = null
+    private var awaitingVoice = false
     private val finishRunnable = Runnable { finish() }
 
     private val voiceLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
+        awaitingVoice = false
         val spoken = result.data
             ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             ?.firstOrNull()
@@ -148,6 +151,16 @@ class QuickAddActivity : AppCompatActivity() {
                 imm.showSoftInput(amountInput, InputMethodManager.SHOW_IMPLICIT)
             }
         }
+    }
+
+    /**
+     * Dismiss when the user leaves (Home, another app) so no invisible sheet
+     * lingers in its own task. Deliberately NOT android:noHistory, which would
+     * also kill us while the speech recognizer is in front and lose the result.
+     */
+    override fun onPause() {
+        super.onPause()
+        if (!awaitingVoice && !isFinishing && !isChangingConfigurations) finish()
     }
 
     override fun onDestroy() {
@@ -294,8 +307,10 @@ class QuickAddActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
             putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.pet_nl_hint))
         }
+        awaitingVoice = true
         runCatching { voiceLauncher.launch(intent) }
             .onFailure {
+                awaitingVoice = false
                 Toast.makeText(this, getString(R.string.pet_voice_unavailable), Toast.LENGTH_SHORT).show()
             }
     }
@@ -366,7 +381,10 @@ class QuickAddActivity : AppCompatActivity() {
         prefs.lastPaymentMethod = selectedPaymentId
         lastSavedId = tx.id
 
-        window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        window.decorView.performHapticFeedback(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM
+            else HapticFeedbackConstants.VIRTUAL_KEY,
+        )
 
         // Tell the WebView (if alive) to drain immediately, and let the pet celebrate.
         PetActionBridge.emit(PetActionBridge.EVENT_TRANSACTION_QUEUED)

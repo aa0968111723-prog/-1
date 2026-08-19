@@ -37,10 +37,9 @@
             android:name=".pet.QuickAddActivity"
             android:theme="@style/PetQuickAddTheme"
             android:exported="true"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity="com.fintracker.app.quickadd"
-            android:noHistory="true"
             android:windowSoftInputMode="adjustResize|stateVisible"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard" />
 

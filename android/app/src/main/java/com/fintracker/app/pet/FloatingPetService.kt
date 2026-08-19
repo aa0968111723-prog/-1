@@ -26,9 +26,9 @@ import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import androidx.core.content.pm.ServiceInfoCompat
 import com.fintracker.app.MainActivity
 import com.fintracker.app.R
 import org.json.JSONObject
@@ -124,7 +124,9 @@ class FloatingPetService : Service() {
                 this,
                 NOTIFICATION_ID,
                 buildNotification(snoozed = false),
-                ServiceInfoCompat.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                // API 34 constant; inlined at compile time and ignored by
+                // ServiceCompat on older platforms (minSdk 24).
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
             )
         } catch (e: Exception) {
             // Android 12+ can throw ForegroundServiceStartNotAllowedException when a
