@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- The app's action blue. 小財 is yellow, so the icon reads at 48dp. -->
+    <color name="ic_launcher_background">#87A2B4</color>
 </resources>

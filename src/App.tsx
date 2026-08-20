@@ -644,11 +644,11 @@ export default function App() {
           {/* 桌機：完整分頁列（這個 PR 不改桌機版） */}
           <div className="hidden sm:flex sm:items-center justify-between h-20 gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-[#E2D8C6] to-[#C9B9A6] text-[#5C5248] rounded-xl flex items-center justify-center font-extrabold text-xl shadow-sm border border-white/50">
-                F
+              <div className="w-10 h-10 bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] rounded-xl flex items-center justify-center text-xl shadow-sm border border-white/50">
+                🐣
               </div>
               <div className="flex flex-col">
-                <span className="font-extrabold text-[#5C5248] tracking-wide text-lg leading-tight">FinTracker Pro</span>
+                <span className="font-extrabold text-[#5C5248] tracking-wide text-lg leading-tight">小財記帳</span>
                 <span className="text-[10px] text-[#82786D] hidden md:block font-bold mt-0.5">{timeGreeting}</span>
               </div>
             </div>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  啟動畫面：背景色 + 小財本人。
+
+  刻意重用桌寵的向量圖（ic_pet_body + ic_pet_face_idle），而不是另外做一張
+  splash 圖 —— 使用者開 App 看到的第一個東西，就應該是他之後每天看到的那隻。
+  向量沒有密度問題，也不會像原本那張 splash.png 一樣在不同螢幕上糊掉。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:width="176dp"
+        android:height="176dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_pet_body" />
+    <item
+        android:width="176dp"
+        android:height="176dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_pet_face_idle" />
+</layer-list>

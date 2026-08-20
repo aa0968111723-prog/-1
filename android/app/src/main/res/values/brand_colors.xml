@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 小財's warm off-white. Same background the web app opens on, so the
+         handoff from splash to WebView has no flash of a different colour. -->
+    <color name="splash_background">#FAF6F0</color>
+</resources>
