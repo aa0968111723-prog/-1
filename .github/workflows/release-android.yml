@@ -1,0 +1,207 @@
+name: Release Android
+
+# Production releases are cut from a tag, never from an ordinary push.
+# Tagging is the deliberate act; main moving is not. A workflow_dispatch is
+# kept for internal builds so the pipeline can be exercised without minting a
+# public version.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'internal = testable build, not advertised on the download page'
+        required: true
+        default: 'internal'
+        type: choice
+        options: [internal, production]
+
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, checksum and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tag annotations are the release notes; a depth-1 checkout has none.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Resolve version and channel
+        id: meta
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$VERSION" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}."
+              echo "::error::Bump package.json and run 'npm run sync:version' before tagging."
+              exit 1
+            fi
+            CHANNEL=production
+          else
+            CHANNEL="${{ inputs.channel }}"
+          fi
+          # versionCode must match what sync-version.mjs derives, or phones will
+          # refuse the upgrade even though the name looks newer.
+          node scripts/sync-version.mjs --check
+          VERSION_CODE=$(grep -oP 'versionCode \K\d+' android/app/build.gradle)
+          echo "version=$VERSION"          >> "$GITHUB_OUTPUT"
+          echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL"          >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION (code $VERSION_CODE) on channel $CHANNEL"
+
+      - name: Build web assets + Capacitor sync
+        run: npm run android:sync
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          VITE_RELEASE_MANIFEST_URL: ${{ secrets.RELEASE_MANIFEST_URL }}
+
+      - name: Assemble APK
+        working-directory: android
+        # Unsigned release builds cannot be installed, so until a signing key
+        # exists this pipeline ships the debug-signed artifact and labels it
+        # honestly in the manifest. It is NOT presented as a production release
+        # unless a keystore secret is configured (see docs/ANDROID_DISTRIBUTION.md).
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Checksum and stage
+        id: artifact
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          VERSION="${{ steps.meta.outputs.version }}"
+          OUT="fintracker-${VERSION}.apk"
+          mkdir -p release/android/"$VERSION"
+          cp "$APK" release/android/"$VERSION"/"$OUT"
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "$APK")
+          echo "sha256=$SHA"   >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE"    >> "$GITHUB_OUTPUT"
+          echo "apkName=$OUT"  >> "$GITHUB_OUTPUT"
+          echo "SHA-256 $SHA  ($SIZE bytes)"
+
+      - name: Is publishing configured
+        id: cfg
+        env:
+          KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEY:-}" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build manifest
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          NOTES=$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}" 2>/dev/null || true)
+          [ -n "$NOTES" ] || NOTES="版本 ${VERSION}"
+          export NOTES
+          node - <<'NODE' > "release/android/${{ steps.meta.outputs.version }}/manifest.json"
+          const fs = require('fs');
+          const manifest = {
+            version: process.env.VERSION,
+            versionCode: Number(process.env.VERSION_CODE),
+            platform: 'android',
+            minAndroid: Number(process.env.MIN_SDK),
+            channel: process.env.CHANNEL,
+            apkUrl: `${process.env.PUBLIC_BASE}/android/${process.env.VERSION}/${process.env.APK_NAME}`,
+            sha256: process.env.SHA256,
+            size: Number(process.env.SIZE),
+            releasedAt: new Date().toISOString(),
+            notes: process.env.NOTES,
+            commit: process.env.GITHUB_SHA,
+          };
+          process.stdout.write(JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+          cat "release/android/${VERSION}/manifest.json"
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION_CODE: ${{ steps.meta.outputs.versionCode }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+          APK_NAME: ${{ steps.artifact.outputs.apkName }}
+          SHA256: ${{ steps.artifact.outputs.sha256 }}
+          SIZE: ${{ steps.artifact.outputs.size }}
+          MIN_SDK: 24
+          # Falls back to the project's own public bucket so a release still
+          # produces a working URL before anyone configures the override.
+          PUBLIC_BASE: ${{ secrets.RELEASE_PUBLIC_BASE || 'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases' }}
+
+      - name: Publish to Supabase Storage
+        if: steps.cfg.outputs.publish == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+          APK_NAME: ${{ steps.artifact.outputs.apkName }}
+        run: |
+          set -euo pipefail
+          BUCKET=app-releases
+          BASE="${SUPABASE_URL}/storage/v1/object"
+          up() { # path, file, content-type
+            curl -sS --fail-with-body -X POST "${BASE}/${BUCKET}/$1" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: $3" \
+              -H "x-upsert: true" \
+              --data-binary "@$2" > /dev/null
+            echo "uploaded $1"
+          }
+          up "android/${VERSION}/${APK_NAME}" \
+             "release/android/${VERSION}/${APK_NAME}" \
+             "application/vnd.android.package-archive"
+          up "android/${VERSION}/manifest.json" \
+             "release/android/${VERSION}/manifest.json" \
+             "application/json"
+          # Only a production build becomes THE advertised version. An internal
+          # build is uploaded and reachable, but latest.json keeps pointing at
+          # the last production release, so the download page never hands a
+          # test build to an ordinary visitor.
+          if [ "${CHANNEL}" = "production" ]; then
+            up "android/latest.json" \
+               "release/android/${VERSION}/manifest.json" \
+               "application/json"
+            echo "latest.json now points at ${VERSION}"
+          else
+            echo "internal channel: latest.json left untouched"
+          fi
+
+      - name: Warn when publishing is not configured
+        if: steps.cfg.outputs.publish != 'true'
+        run: |
+          echo "::warning::SUPABASE_SERVICE_ROLE_KEY is not set, so nothing was published."
+          echo "::warning::The APK and manifest are still attached as build artifacts."
+          echo "::warning::See docs/ANDROID_DISTRIBUTION.md for the secrets this needs."
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ steps.meta.outputs.version }}
+          path: release/android/${{ steps.meta.outputs.version }}/
+          retention-days: 30

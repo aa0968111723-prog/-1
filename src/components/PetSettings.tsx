@@ -30,6 +30,8 @@ import { loadPinnedCategoryIds } from '../lib/quickCategories';
 import { runIntegrityCheck, loadIntegrityReport, IntegrityReport } from '../lib/integrity';
 import { STORAGE_KEYS, saveJSON } from '../lib/storage';
 import { cn } from '../lib/utils';
+import { runtimeEnvironment } from '../lib/runtimeEnvironment';
+import AndroidDownloadCard from './AndroidDownloadCard';
 
 interface PetSettingsProps {
   settings: PetSettingsType;
@@ -225,20 +227,32 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
-      {/* 主開關 */}
+      {/*
+        The page has to say something different depending on where it is
+        running. In a browser the honest message is "this lives on your phone,
+        here is how to get it" — the old copy said the pet "needs the Android
+        app" and then showed a disabled 開啟桌寵 button, which reads as broken
+        rather than as a different platform.
+      */}
+      {!runtimeEnvironment.isNativeApp ? (
+        <AndroidDownloadCard variant="card" />
+      ) : (
       <div className="glass rounded-[24px] p-6 space-y-4">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] flex items-center justify-center text-3xl shadow-inner border border-white/60">
             🐣
           </div>
           <div className="flex-1">
-            <h2 className="font-extrabold text-[#5C5248] text-xl">{settings.petName || '小財'}桌寵</h2>
-            <p className="text-sm text-[#82786D] font-bold">
-              {native
-                ? settings.enabled
-                  ? `狀態：${status?.running ? '正在陪你' : '服務未執行（可重新開啟）'}`
-                  : '浮在手機畫面上，點一下就能快速記帳'
-                : '桌寵需要 Android App 版本（Capacitor），網頁版可先預覽設定'}
+            <h2 className="font-extrabold text-[#5C5248] text-xl">{settings.petName || '小財'}</h2>
+            <p className="text-sm text-[#82786D] font-bold flex items-center gap-1.5">
+              {settings.enabled ? (
+                <>
+                  <span className={cn('w-2 h-2 rounded-full', status?.running ? 'bg-[#7D9D81]' : 'bg-[#D1A066]')} />
+                  {status?.running ? '正在陪你' : '服務未執行（可重新開啟）'}
+                </>
+              ) : (
+                '浮在手機畫面上，點一下就能快速記帳'
+              )}
             </p>
           </div>
         </div>
@@ -267,6 +281,7 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
         )}
         {error && <p className="text-sm font-bold text-[#CD7A70]">{error}</p>}
       </div>
+      )}
 
       {/* 桌寵外觀 */}
       <Section title="桌寵">

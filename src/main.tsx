@@ -1,10 +1,12 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import AndroidLandingPage from './components/AndroidLandingPage.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 import {runStorageMigration} from './lib/storage';
 import {runIntegrityCheck} from './lib/integrity';
+import {financeStore} from './lib/financeStore';
 
 // Storage schema migration must complete before any component reads finance data.
 runStorageMigration();
@@ -20,10 +22,42 @@ try {
   console.error('[FinTracker.Storage] integrity check failed', e);
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+/**
+ * One standalone route, matched by path rather than by pulling in a router.
+ * /app/android has to be shareable and QR-scannable on its own, but the rest
+ * of FinTracker is a single view — a routing library for one extra page would
+ * be more moving parts than the problem has.
+ */
+const isAndroidLanding = window.location.pathname.replace(/\/+$/, '') === '/app/android';
+
+function mount() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        {isAndroidLanding ? <AndroidLandingPage /> : <App />}
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+/**
+ * The one await the storage move costs us (see ADR-LOCAL-FIRST-STORAGE).
+ * Components still read synchronously; they just cannot start before the
+ * cache is warm, or the first render would show an empty ledger and then
+ * flash the real one in.
+ *
+ * If init() ever rejects we still mount: FinanceStore falls back to
+ * localStorage internally, and a working app on the old backend beats a
+ * blank screen.
+ */
+financeStore
+  .init()
+  .then(result => {
+    console.info(
+      `[FinTracker.Store] backend=${result.backend}` +
+        (result.migrated ? ` migrated=${JSON.stringify(result.migratedCounts)}` : ''),
+    );
+    for (const w of result.warnings) console.warn('[FinTracker.Store]', w);
+  })
+  .catch(e => console.error('[FinTracker.Store] init failed; continuing on localStorage', e))
+  .finally(mount);

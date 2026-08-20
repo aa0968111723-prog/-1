@@ -25,12 +25,23 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npm run lint
+      - name: Version in sync
+        # package.json is the single source of the version. If build.gradle has
+        # drifted, a release would ship an APK whose versionCode phones refuse
+        # to treat as an upgrade — catch it here, not at install time.
+        run: npm run check:version
       - name: Unit tests
         run: npm test
       - name: Build
         run: npm run build
       - name: Verify shared config asset in sync
         run: cmp shared/pet-shared-config.json android/app/src/main/assets/pet_shared_config.json
+      - name: Supabase migrations are valid SQL
+        # Cheap structural gate: migrations must exist, be numbered, and every
+        # finance table must carry an RLS statement. A schema change that
+        # forgets RLS is the one mistake that silently exposes another user's
+        # ledger, so it fails the build rather than review.
+        run: node scripts/check-migrations.mjs
       - name: Upload web dist
         uses: actions/upload-artifact@v4
         with:

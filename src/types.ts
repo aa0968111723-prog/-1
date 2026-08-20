@@ -53,6 +53,24 @@ export interface Transaction {
    */
   linkedDebtApplied?: number;
   linkedGoalApplied?: number;
+
+  // --- cloud sync metadata; all optional so legacy rows stay valid ---
+  /**
+   * When this row was last edited ON A DEVICE. Merge compares this, not the
+   * server's write time: an offline edit made at 09:00 and pushed at 18:00
+   * must not beat an online edit made at 17:00.
+   */
+  updatedAt?: string;
+  /**
+   * Tombstone. A deleted row keeps travelling, because removing it outright
+   * looks identical to "not synced yet" on another device — which is how
+   * deleted transactions come back from the dead.
+   */
+  deletedAt?: string | null;
+  /** Which installation produced the current version; breaks merge ties. */
+  deviceId?: string;
+  /** When the cloud last confirmed this row. Older than updatedAt = dirty. */
+  syncedAt?: string;
 }
 
 export interface RecurringTransaction {

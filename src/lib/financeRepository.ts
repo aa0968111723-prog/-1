@@ -16,6 +16,7 @@ import {
   SpreadsheetRecord,
 } from '../types';
 import { STORAGE_KEYS, loadJSON, saveJSON } from './storage';
+import { FinanceStore, financeStore } from './financeStore';
 import { getLocalDateKey, monthKeyOf } from './datetime';
 import { addAmounts, subtractAmounts, subtractClampedAtZero, sumAmounts } from './money';
 
@@ -27,31 +28,51 @@ export interface TodaySummary {
 }
 
 export class FinanceRepository {
-  constructor(private storage: Storage | undefined = globalThis.localStorage) {}
+  /**
+   * Two backends, one API.
+   *
+   * With a [store] the durable layer is IndexedDB (see
+   * docs/ADR-LOCAL-FIRST-STORAGE.md); without one it is whatever Storage was
+   * handed in, which is how every existing test keeps working unchanged with
+   * an in-memory Storage. Nothing above this line can tell the difference.
+   */
+  constructor(
+    private storage: Storage | undefined = globalThis.localStorage,
+    private store?: FinanceStore,
+  ) {}
+
+  private readKey<T>(key: string, fallback: T): T {
+    return this.store ? this.store.read(key, fallback) : loadJSON(key, fallback, this.storage);
+  }
+
+  private writeKey(key: string, value: unknown): void {
+    if (this.store) this.store.write(key, value);
+    else saveJSON(key, value, this.storage);
+  }
 
   // ---- loads ----
   getTransactions(): Transaction[] {
-    return loadJSON<Transaction[]>(STORAGE_KEYS.transactions, [], this.storage);
+    return this.readKey<Transaction[]>(STORAGE_KEYS.transactions, []);
   }
 
   getBudgets(): Record<string, BudgetConfig> {
-    return loadJSON<Record<string, BudgetConfig>>(STORAGE_KEYS.budgets, {}, this.storage);
+    return this.readKey<Record<string, BudgetConfig>>(STORAGE_KEYS.budgets, {});
   }
 
   getRecurring(): RecurringTransaction[] {
-    return loadJSON<RecurringTransaction[]>(STORAGE_KEYS.recurring, [], this.storage);
+    return this.readKey<RecurringTransaction[]>(STORAGE_KEYS.recurring, []);
   }
 
   getDebts(): Debt[] {
-    return loadJSON<Debt[]>(STORAGE_KEYS.debts, [], this.storage);
+    return this.readKey<Debt[]>(STORAGE_KEYS.debts, []);
   }
 
   getGoals(): Goal[] {
-    return loadJSON<Goal[]>(STORAGE_KEYS.goals, [], this.storage);
+    return this.readKey<Goal[]>(STORAGE_KEYS.goals, []);
   }
 
   getSpreadsheetRecords(): SpreadsheetRecord[] {
-    return loadJSON<SpreadsheetRecord[]>(STORAGE_KEYS.spreadsheetRecords, [], this.storage);
+    return this.readKey<SpreadsheetRecord[]>(STORAGE_KEYS.spreadsheetRecords, []);
   }
 
   getMonthlyIncome(): number {
@@ -62,27 +83,27 @@ export class FinanceRepository {
 
   // ---- saves ----
   saveTransactions(transactions: Transaction[]): void {
-    saveJSON(STORAGE_KEYS.transactions, transactions, this.storage);
+    this.writeKey(STORAGE_KEYS.transactions, transactions);
   }
 
   saveBudgets(budgets: Record<string, BudgetConfig>): void {
-    saveJSON(STORAGE_KEYS.budgets, budgets, this.storage);
+    this.writeKey(STORAGE_KEYS.budgets, budgets);
   }
 
   saveRecurring(recurring: RecurringTransaction[]): void {
-    saveJSON(STORAGE_KEYS.recurring, recurring, this.storage);
+    this.writeKey(STORAGE_KEYS.recurring, recurring);
   }
 
   saveDebts(debts: Debt[]): void {
-    saveJSON(STORAGE_KEYS.debts, debts, this.storage);
+    this.writeKey(STORAGE_KEYS.debts, debts);
   }
 
   saveGoals(goals: Goal[]): void {
-    saveJSON(STORAGE_KEYS.goals, goals, this.storage);
+    this.writeKey(STORAGE_KEYS.goals, goals);
   }
 
   saveSpreadsheetRecords(records: SpreadsheetRecord[]): void {
-    saveJSON(STORAGE_KEYS.spreadsheetRecords, records, this.storage);
+    this.writeKey(STORAGE_KEYS.spreadsheetRecords, records);
   }
 
   saveMonthlyIncome(income: number): void {
@@ -248,4 +269,6 @@ export function computeMonthExpense(transactions: Transaction[], monthKey: strin
   );
 }
 
-export const financeRepository = new FinanceRepository();
+// The app-wide instance is IndexedDB-backed. financeStore.init() must have
+// resolved before this is read from; main.tsx awaits it before rendering.
+export const financeRepository = new FinanceRepository(globalThis.localStorage, financeStore);
