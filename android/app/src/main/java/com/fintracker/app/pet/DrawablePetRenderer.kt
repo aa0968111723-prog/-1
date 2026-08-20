@@ -40,6 +40,8 @@ class DrawablePetRenderer : PetRenderer {
     // instead of letting them poke at a detached view tree.
     private var faceRestore: Runnable? = null
     private var propHide: Runnable? = null
+    /** Bumped whenever something interrupts a walk bob; stale chain links stop. */
+    private var bobGeneration = 0
 
     /** Horizontal sign for the current facing; scale animations multiply by this. */
     private fun dir(): Float = if (facingLeft) -1f else 1f
@@ -163,8 +165,9 @@ class DrawablePetRenderer : PetRenderer {
         val v = root ?: return
         val per = (totalDurationMs / (hops * 2).coerceAtLeast(1)).coerceAtLeast(60L)
         v.animate().cancel()
+        val gen = ++bobGeneration
         fun bob(remaining: Int) {
-            if (remaining <= 0 || root == null) {
+            if (remaining <= 0 || root == null || gen != bobGeneration) {
                 v.animate().translationY(0f).setDuration(per).start()
                 return
             }
@@ -220,6 +223,7 @@ class DrawablePetRenderer : PetRenderer {
 
     override fun playSurprised() {
         val f = face ?: return
+        bobGeneration++ // being picked up ends any stroll bob chain
         f.setImageResource(R.drawable.ic_pet_face_surprised)
         if (animationLevel == "full") {
             val v = root ?: return
@@ -259,6 +263,7 @@ class DrawablePetRenderer : PetRenderer {
 
     override fun setSleeping(sleeping: Boolean) {
         this.sleeping = sleeping
+        if (sleeping) bobGeneration++
         val p = prop ?: return
         val z = zzz ?: return
         if (sleeping) {
@@ -300,6 +305,7 @@ class DrawablePetRenderer : PetRenderer {
         propHide?.let { prop?.removeCallbacks(it) }
         faceRestore = null
         propHide = null
+        bobGeneration++
         root = null
         wings = null
         body = null

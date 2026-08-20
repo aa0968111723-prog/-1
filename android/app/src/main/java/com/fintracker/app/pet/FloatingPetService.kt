@@ -309,7 +309,13 @@ class FloatingPetService : Service() {
         snoozed = false
         handler.removeCallbacks(snoozeResumeRunnable)
         settings = prefs.settings()
-        if (petView == null) addPetWindow()
+        if (petView == null) {
+            addPetWindow()
+        } else {
+            // Redundant START with the window alive: make sure the behaviour
+            // loop is armed (scheduleNextTick no-ops while the screen is off).
+            behavior.start()
+        }
         applyPetState()
         running = true
     }
@@ -615,6 +621,9 @@ class FloatingPetService : Service() {
         view.alpha = settings.alpha()
         animateX(view, params, PetPositionManager.snapTargetX(edge, w, petSizePx))
         scheduleAutoCollapse()
+        // Coming back out re-arms life promptly instead of waiting out the
+        // long NONE recheck the collapsed state had scheduled.
+        behavior.start()
     }
 
     private fun animateX(view: View, params: WindowManager.LayoutParams, targetX: Int) {
@@ -781,11 +790,14 @@ class FloatingPetService : Service() {
     }
 
     private fun dismissMenu() {
+        val hadMenu = menuView != null
         menuView?.let { runCatching { windowManager.removeView(it) } }
         menuView = null
-        // The staring is over; drop the shy face if it was up.
-        stateMachine.clearTransient(PetState.SHY)
-        renderer.setMood(stateMachine.current())
+        if (hadMenu) {
+            // The staring is over; drop the shy face if it was up.
+            stateMachine.clearTransient(PetState.SHY)
+            renderer.setMood(stateMachine.current())
+        }
     }
 
     // ---- bubble (its own overlay window so the pet never shifts) ----
@@ -1039,9 +1051,14 @@ class FloatingPetService : Service() {
      */
     private fun imeInset(): Int {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return 0
-        val insets = petView?.rootWindowInsets ?: return 0
-        return runCatching { insets.getInsets(android.view.WindowInsets.Type.ime()).bottom }
-            .getOrDefault(0)
+        // Same source as topInset/bottomInset — the overlay's own
+        // rootWindowInsets often reports 0 for the IME because the overlay is
+        // never the IME target. Visibility-aware on purpose: a hidden
+        // keyboard must not shrink the walkable world.
+        return runCatching {
+            windowManager.currentWindowMetrics.windowInsets
+                .getInsets(WindowInsets.Type.ime()).bottom
+        }.getOrDefault(0)
     }
 
     /** Simplified animations when the user chose so OR the system disabled animator scale (reduced motion). */

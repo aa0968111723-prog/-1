@@ -258,6 +258,34 @@ class PetBehaviorControllerTest {
     }
 
     @Test
+    fun `reduce motion never yanks the blanket off a sleeping pet`() {
+        val (c, fx) = controller()
+        var context = ctx(hour = 2, idleForMs = 20 * 60_000L)
+        c.contextProvider = PetBehaviorController.ContextProvider { context }
+        c.tick()
+        assertTrue(c.sleeping)
+        // 使用者半夜切「簡化動畫」：scheduler 從此只出 NONE。「別動」不是
+        // 「起床」—— 被子要留著。
+        context = ctx(hour = 2, idleForMs = 20 * 60_000L, animationLevel = "simple")
+        repeat(5) { now += PetBehaviorScheduler.RECHECK_MS; c.tick() }
+        assertTrue("hold-still must not wake a sleeping pet", c.sleeping)
+        assertEquals(0, fx.wakes)
+    }
+
+    @Test
+    fun `collapsing does not wake a sleeping pet`() {
+        val (c, fx) = controller()
+        var context = ctx(hour = 2, idleForMs = 20 * 60_000L)
+        c.contextProvider = PetBehaviorController.ContextProvider { context }
+        c.tick()
+        assertTrue(c.sleeping)
+        context = ctx(hour = 2, idleForMs = 20 * 60_000L, collapsed = true)
+        repeat(5) { now += PetBehaviorScheduler.RECHECK_MS; c.tick() }
+        assertTrue("tucked away and asleep can coexist", c.sleeping)
+        assertEquals(0, fx.wakes)
+    }
+
+    @Test
     fun `collapsed pet keeps exactly one heartbeat pending`() {
         val (c, fx) = controller()
         c.contextProvider = PetBehaviorController.ContextProvider { ctx(collapsed = true) }

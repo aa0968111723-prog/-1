@@ -91,11 +91,15 @@ class PetBehaviorController(
         }
 
         val decision = scheduler.next(ctx)
-        // The scheduler is the single sleep authority: the moment it stops
-        // electing SLEEP — sleep mode toggled off, quiet/power-save now
-        // yielding blinks, morning rules — a sleeping pet must wake up.
-        // Without this, a BLINK decision would leave the blanket on forever.
-        val wokeThisTick = sleeping && decision.behavior != PetBehaviorScheduler.Behavior.SLEEP
+        // The scheduler is the single sleep authority: the moment it elects a
+        // REAL behaviour instead of SLEEP — sleep mode toggled off, quiet or
+        // power-save now yielding blinks, morning rules — a sleeping pet must
+        // wake up; a BLINK decision must never leave the blanket on forever.
+        // NONE is different: it means "hold still" (reduce-motion, collapsed,
+        // menu open...), and holding still while asleep is just... sleeping.
+        val wokeThisTick = sleeping &&
+            decision.behavior != PetBehaviorScheduler.Behavior.SLEEP &&
+            decision.behavior != PetBehaviorScheduler.Behavior.NONE
         // A morning stretch IS the wake pose — holding WAKE first would
         // outrank the lower-priority STRETCH and swallow it.
         if (wokeThisTick) wake(showWakePose = decision.behavior != PetBehaviorScheduler.Behavior.STRETCH)
@@ -203,7 +207,7 @@ class PetBehaviorController(
     fun lastStretchDayTag(): Int = lastStretchDayTag
 
     companion object {
-        const val FIRST_TICK_MS = 6_000L
+        const val FIRST_TICK_MS = 4_000L
         const val AFTER_INTERACTION_MS = 20_000L
         const val WALK_HOLD_MS = 4_000L
         const val STRETCH_MS = 1_800L
