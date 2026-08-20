@@ -60,10 +60,10 @@ describe('mobile shell', () => {
     const labels = within(nav)
       .getAllByRole('button')
       .map(b => b.textContent?.trim());
-    expect(labels).toEqual(['🏠首頁', '🧾明細', '🐣小財', '更多']);
+    expect(labels).toEqual(['🏠首頁', '🧾明細', '小財', '更多']);
 
-    expect(await screen.findByText('＋ 記一筆')).toBeTruthy();
-    expect(screen.getByText('今天花了')).toBeTruthy();
+    expect(await screen.findByText('＋ 快速記帳')).toBeTruthy();
+    expect(screen.getByText('今日支出')).toBeTruthy();
     expectNoErrorCard();
   });
 
@@ -89,14 +89,14 @@ describe('mobile shell', () => {
       }
     }
 
-    expect(await screen.findByText('今天花了')).toBeTruthy();
+    expect(await screen.findByText('今日支出')).toBeTruthy();
   });
 
   it('survives 20 rounds of opening and closing the quick-add modal', async () => {
     render(<App />);
 
     for (let round = 0; round < 20; round++) {
-      fireEvent.click(await screen.findByText('＋ 記一筆'));
+      fireEvent.click(await screen.findByText('＋ 快速記帳'));
       expect(screen.getByLabelText('金額')).toBeTruthy();
 
       fireEvent.click(screen.getByLabelText('關閉'));
@@ -110,7 +110,7 @@ describe('mobile shell', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<App />);
 
-    fireEvent.click(await screen.findByText('＋ 記一筆'));
+    fireEvent.click(await screen.findByText('＋ 快速記帳'));
     fireEvent.change(screen.getByLabelText('金額'), { target: { value: '120' } });
     fireEvent.click(screen.getByText('餐飲'));
     fireEvent.click(screen.getByText('記下來'));
@@ -141,7 +141,7 @@ describe('mobile shell', () => {
       expectNoErrorCard();
     }
 
-    fireEvent.click(await screen.findByText('＋ 記一筆'));
+    fireEvent.click(await screen.findByText('＋ 快速記帳'));
     fireEvent.click(screen.getByLabelText('關閉'));
     await act(async () => {});
     expectNoErrorCard();
@@ -172,7 +172,7 @@ describe('external DOM mutation (what Google Translate does)', () => {
 
   it('never leaves a blank screen: either it survives, or the desync card explains it', async () => {
     const { container } = render(<App />);
-    await screen.findByText('＋ 記一筆');
+    await screen.findByText('＋ 快速記帳');
 
     const replaced = translateLikeMutation(container);
     expect(replaced).toBeGreaterThan(0);
