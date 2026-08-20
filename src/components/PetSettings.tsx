@@ -86,6 +86,8 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
   const [status, setStatus] = useState<PetStatus | null>(null);
   const [debugInfo, setDebugInfo] = useState<PetDebugInfo | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  // 進階設定預設收起：每天會用到的只有前面那幾個開關。
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -284,7 +286,7 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
       </div>
       )}
 
-      {/* 桌寵外觀 */}
+      {/* 最常調整的兩件事：牠多大、牠叫什麼 */}
       <Section title="桌寵">
         <OptionRow<PetSize>
           label="大小"
@@ -295,45 +297,6 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
             { value: 'large', label: '大' },
           ]}
           onSelect={v => update({ size: v })}
-        />
-        <OptionRow<PetEdge>
-          label="停靠"
-          value={settings.edge}
-          options={[
-            { value: 'left', label: '左' },
-            { value: 'right', label: '右' },
-            { value: 'auto', label: '自動' },
-          ]}
-          onSelect={v => update({ edge: v })}
-        />
-        <OptionRow<PetAutoCollapse>
-          label="自動收邊"
-          value={settings.autoCollapse}
-          options={[
-            { value: '5s', label: '5 秒' },
-            { value: '15s', label: '15 秒' },
-            { value: 'off', label: '永不' },
-          ]}
-          onSelect={v => update({ autoCollapse: v })}
-        />
-        <OptionRow<PetAnimationLevel>
-          label="動畫"
-          value={settings.animation}
-          options={[
-            { value: 'full', label: '完整' },
-            { value: 'simple', label: '簡化' },
-          ]}
-          onSelect={v => update({ animation: v })}
-        />
-        <OptionRow<PetOpacity>
-          label="透明度"
-          value={settings.opacity}
-          options={[
-            { value: '100', label: '100%' },
-            { value: '85', label: '85%' },
-            { value: '70', label: '70%' },
-          ]}
-          onSelect={v => update({ opacity: v })}
         />
         <div className="flex items-center justify-between gap-3 py-3">
           <span className="text-sm font-bold text-[#5C5248] shrink-0">桌寵名稱</span>
@@ -347,7 +310,7 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
         </div>
       </Section>
 
-      {/* 快速記帳 */}
+      {/* 記帳時真正會碰到的兩個開關 */}
       <Section title="快速記帳">
         <OptionRow
           label="預設類型"
@@ -367,204 +330,9 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
           ]}
           onSelect={v => update({ fastMode: v === 'fast' })}
         />
-        <div className="py-3 border-b border-black/5">
-          <p className="text-sm font-bold text-[#5C5248] mb-2">釘選常用分類（最多 4 個，會排在最前面）</p>
-          <div className="flex flex-wrap gap-2">
-            {expenseCategories.map(def => (
-              <button
-                key={def.id}
-                type="button"
-                onClick={() => togglePinned(def.id)}
-                className={cn(
-                  'px-3 py-1.5 text-xs font-bold rounded-full border transition-all',
-                  pinned.includes(def.id)
-                    ? 'bg-[#87A2B4]/15 border-[#87A2B4] text-[#5C5248]'
-                    : 'bg-white/60 border-black/5 text-[#82786D] hover:bg-white',
-                )}
-              >
-                {def.emoji} {def.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 自訂分類 */}
-        <div className="py-3 border-b border-black/5">
-          <p className="text-sm font-bold text-[#5C5248] mb-2">自訂分類</p>
-          {customCategories.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {customCategories.map(c => (
-                <span
-                  key={c.id}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full bg-white/70 border border-black/5 text-[#5C5248]"
-                >
-                  {c.emoji} {c.label}
-                  <span className="text-[10px] text-[#82786D]">{c.type === 'income' ? '收入' : '支出'}</span>
-                  <button
-                    type="button"
-                    aria-label={`刪除 ${c.label}`}
-                    onClick={() => {
-                      removeCustomCategory(c.id);
-                      setCustomCategories(loadCustomCategories());
-                    }}
-                    className="text-[#CD7A70] hover:opacity-70 px-1"
-                  >
-                    ✕
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newCategoryEmoji}
-              onChange={e => setNewCategoryEmoji(e.target.value)}
-              maxLength={2}
-              aria-label="分類圖示"
-              className="w-14 px-2 py-2 text-center bg-white/70 border border-black/5 rounded-xl outline-none"
-            />
-            <input
-              type="text"
-              value={newCategoryLabel}
-              onChange={e => setNewCategoryLabel(e.target.value)}
-              placeholder="例如：寵物、旅遊"
-              maxLength={10}
-              aria-label="分類名稱"
-              className="flex-1 px-3 py-2 text-sm bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none"
-            />
-            <select
-              value={newCategoryType}
-              onChange={e => setNewCategoryType(e.target.value as 'expense' | 'income')}
-              aria-label="分類類型"
-              className="px-2 py-2 text-sm bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none"
-            >
-              <option value="expense">支出</option>
-              <option value="income">收入</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                const result = addCustomCategory({
-                  label: newCategoryLabel,
-                  emoji: newCategoryEmoji,
-                  type: newCategoryType,
-                });
-                if (!result.ok) {
-                  setCategoryError(result.error ?? '');
-                  return;
-                }
-                setCategoryError('');
-                setNewCategoryLabel('');
-                setNewCategoryEmoji('🏷️');
-                setCustomCategories(loadCustomCategories());
-              }}
-              className="px-4 py-2 text-sm font-bold rounded-xl bg-[#E2D8C6] text-[#5C5248] active:scale-95 transition-all"
-            >
-              新增
-            </button>
-          </div>
-          {categoryError && <p className="text-xs font-bold text-[#CD7A70] mt-2">{categoryError}</p>}
-          <p className="text-xs text-[#82786D] font-bold mt-2">刪除分類不會更動任何既有交易。</p>
-        </div>
-
-        {/* 支付方式 */}
-        <div className="py-3">
-          <p className="text-sm font-bold text-[#5C5248] mb-2">支付方式（顯示在快速記帳）</p>
-          <div className="flex flex-wrap gap-2">
-            {ALL_PAYMENT_METHODS.map(pm => {
-              const enabled = paymentPrefs.enabled.includes(pm.id);
-              return (
-                <button
-                  key={pm.id}
-                  type="button"
-                  onClick={() => setPaymentPrefs(togglePaymentMethod(pm.id))}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-bold rounded-full border transition-all',
-                    enabled
-                      ? 'bg-[#87A2B4]/15 border-[#87A2B4] text-[#5C5248]'
-                      : 'bg-white/60 border-black/5 text-[#82786D] hover:bg-white',
-                  )}
-                >
-                  {pm.emoji} {pm.label}
-                </button>
-              );
-            })}
-          </div>
-          {paymentPrefs.enabled.length > 1 && (
-            <div className="mt-3 space-y-1">
-              {paymentPrefs.enabled.map((id, index) => (
-                <div key={id} className="flex items-center gap-2 text-xs font-bold text-[#5C5248]">
-                  <span className="w-5 text-[#82786D]">{index + 1}.</span>
-                  <span className="flex-1">{paymentMethodLabel(id)}</span>
-                  <button
-                    type="button"
-                    aria-label={`${paymentMethodLabel(id)} 上移`}
-                    disabled={index === 0}
-                    onClick={() => setPaymentPrefs(movePaymentMethod(id, -1))}
-                    className="px-2 py-1 rounded-lg bg-white/70 border border-black/5 disabled:opacity-30"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`${paymentMethodLabel(id)} 下移`}
-                    disabled={index === paymentPrefs.enabled.length - 1}
-                    onClick={() => setPaymentPrefs(movePaymentMethod(id, 1))}
-                    className="px-2 py-1 rounded-lg bg-white/70 border border-black/5 disabled:opacity-30"
-                  >
-                    ↓
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </Section>
 
-      {/* 隱私 */}
-      <Section title="隱私">
-        <OptionRow<PetBubbleDisplay>
-          label="泡泡顯示"
-          value={settings.bubbleDisplay}
-          options={[
-            { value: 'text', label: '只有文字' },
-            { value: 'count', label: '今日筆數' },
-            { value: 'todaySpend', label: '今日支出' },
-            { value: 'budget', label: '預算狀態' },
-          ]}
-          onSelect={v => update({ bubbleDisplay: v, showAmounts: bubbleShowsAmounts({ bubbleDisplay: v }) })}
-        />
-        <OptionRow
-          label="App 鎖定"
-          value={settings.appLock ? 'on' : 'off'}
-          options={[
-            { value: 'off', label: '關' },
-            { value: 'on', label: '生物辨識 / 裝置密碼' },
-          ]}
-          onSelect={v => update({ appLock: v === 'on' })}
-        />
-        {settings.appLock && (
-          <OptionRow
-            label="快速記帳"
-            value={settings.quickAddWithoutUnlock ? 'free' : 'locked'}
-            options={[
-              { value: 'free', label: '免解鎖' },
-              { value: 'locked', label: '也要驗證' },
-            ]}
-            onSelect={v => update({ quickAddWithoutUnlock: v === 'free' })}
-          />
-        )}
-        <p className="text-xs text-[#82786D] font-bold pt-2">
-          預設隱私模式：桌寵不會在畫面上顯示總資產、負債或帳戶餘額。
-        </p>
-      </Section>
-
-      {/* 資料 */}
-      <Section title="帳號與同步">
-        <AccountPanel />
-      </Section>
-
+      {/* 資料備份留在外面：這是資料安全，不是進階選項 */}
       <Section title="資料">
         <div className="flex gap-3 py-2">
           <button
@@ -599,101 +367,362 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
         </p>
       </Section>
 
-      {/* 進階：權限健康 + 診斷 */}
-      {native && (
-        <Section title="進階">
-          <div className="space-y-2 py-2 text-sm font-bold text-[#5C5248]">
-            {/*
-              Which commit is this site actually running? Without it, a page
-              that looks out of date is indistinguishable from a deploy that
-              never fired, and the only debugging tool is guessing.
-            */}
-            <div className="flex justify-between text-[#82786D]">
-              <span>網站版本</span>
-              <span className="font-mono text-xs">
-                {__BUILD_STAMP__.version} · {__BUILD_STAMP__.commit}
-              </span>
-            </div>
-            <div className="flex justify-between text-[#82786D]">
-              <span>建置時間</span>
-              <span className="font-mono text-xs">
-                {new Date(__BUILD_STAMP__.builtAt).toLocaleString('zh-TW')}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>懸浮視窗權限</span>
-              <span>{status?.permissionGranted ? '✓ 已允許' : '✕ 未允許'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>通知權限</span>
-              <span>{status?.notificationsGranted === false ? '✕ 未允許' : '✓ 已允許'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>桌寵服務</span>
-              <span>{status?.running ? 'Running' : 'Stopped'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>待同步筆數</span>
-              <span>{status?.pendingCount ?? 0}</span>
-            </div>
-            {debugInfo && (
-              <div className="flex justify-between text-[#82786D]">
-                <span>上次同步</span>
-                <span>{debugInfo.lastSyncAt ? new Date(debugInfo.lastSyncAt).toLocaleString() : '—'}</span>
+      {/*
+        進階設定：預設收起。
+
+        這裡面的東西一個都沒有被拿掉 —— 停靠邊、透明度、釘選分類、自訂分類、
+        付款方式、隱私、帳號同步、權限診斷全都還在，只是不再是每天打開設定頁
+        時第一眼要面對的六大區塊。
+      */}
+      <div className="glass rounded-[24px] overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(v => !v)}
+          aria-expanded={showAdvanced}
+          className="w-full flex items-center justify-between gap-3 px-6 min-h-[56px] text-left"
+        >
+          <span className="font-extrabold text-[#5C5248]">進階設定</span>
+          <span className="text-sm font-bold text-[#A79C90]">{showAdvanced ? '收起' : '展開'}</span>
+        </button>
+        {showAdvanced && (
+          <div className="px-4 pb-4 space-y-4">
+            <Section title="桌寵外觀">
+              <OptionRow<PetEdge>
+                label="停靠"
+                value={settings.edge}
+                options={[
+                  { value: 'left', label: '左' },
+                  { value: 'right', label: '右' },
+                  { value: 'auto', label: '自動' },
+                ]}
+                onSelect={v => update({ edge: v })}
+              />
+              <OptionRow<PetAutoCollapse>
+                label="自動收邊"
+                value={settings.autoCollapse}
+                options={[
+                  { value: '5s', label: '5 秒' },
+                  { value: '15s', label: '15 秒' },
+                  { value: 'off', label: '永不' },
+                ]}
+                onSelect={v => update({ autoCollapse: v })}
+              />
+              <OptionRow<PetAnimationLevel>
+                label="動畫"
+                value={settings.animation}
+                options={[
+                  { value: 'full', label: '完整' },
+                  { value: 'simple', label: '簡化' },
+                ]}
+                onSelect={v => update({ animation: v })}
+              />
+              <OptionRow<PetOpacity>
+                label="透明度"
+                value={settings.opacity}
+                options={[
+                  { value: '100', label: '100%' },
+                  { value: '85', label: '85%' },
+                  { value: '70', label: '70%' },
+                ]}
+                onSelect={v => update({ opacity: v })}
+              />
+            </Section>
+
+            <Section title="快速記帳進階">
+              <div className="py-3 border-b border-black/5">
+                <p className="text-sm font-bold text-[#5C5248] mb-2">釘選常用分類（最多 4 個，會排在最前面）</p>
+                <div className="flex flex-wrap gap-2">
+                  {expenseCategories.map(def => (
+                    <button
+                      key={def.id}
+                      type="button"
+                      onClick={() => togglePinned(def.id)}
+                      className={cn(
+                        'px-3 py-1.5 text-xs font-bold rounded-full border transition-all',
+                        pinned.includes(def.id)
+                          ? 'bg-[#87A2B4]/15 border-[#87A2B4] text-[#5C5248]'
+                          : 'bg-white/60 border-black/5 text-[#82786D] hover:bg-white',
+                      )}
+                    >
+                      {def.emoji} {def.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-            {debugInfo && (
-              <div className="flex justify-between text-[#82786D]">
-                <span>位置</span>
-                <span>
-                  {debugInfo.edge} ({debugInfo.positionX.toFixed(2)}, {debugInfo.positionY.toFixed(2)})
-                </span>
+
+              {/* 自訂分類 */}
+              <div className="py-3 border-b border-black/5">
+                <p className="text-sm font-bold text-[#5C5248] mb-2">自訂分類</p>
+                {customCategories.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {customCategories.map(c => (
+                      <span
+                        key={c.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full bg-white/70 border border-black/5 text-[#5C5248]"
+                      >
+                        {c.emoji} {c.label}
+                        <span className="text-[10px] text-[#82786D]">{c.type === 'income' ? '收入' : '支出'}</span>
+                        <button
+                          type="button"
+                          aria-label={`刪除 ${c.label}`}
+                          onClick={() => {
+                            removeCustomCategory(c.id);
+                            setCustomCategories(loadCustomCategories());
+                          }}
+                          className="text-[#CD7A70] hover:opacity-70 px-1"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newCategoryEmoji}
+                    onChange={e => setNewCategoryEmoji(e.target.value)}
+                    maxLength={2}
+                    aria-label="分類圖示"
+                    className="w-14 px-2 py-2 text-center bg-white/70 border border-black/5 rounded-xl outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={newCategoryLabel}
+                    onChange={e => setNewCategoryLabel(e.target.value)}
+                    placeholder="例如：寵物、旅遊"
+                    maxLength={10}
+                    aria-label="分類名稱"
+                    className="flex-1 px-3 py-2 text-sm bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none"
+                  />
+                  <select
+                    value={newCategoryType}
+                    onChange={e => setNewCategoryType(e.target.value as 'expense' | 'income')}
+                    aria-label="分類類型"
+                    className="px-2 py-2 text-sm bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none"
+                  >
+                    <option value="expense">支出</option>
+                    <option value="income">收入</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const result = addCustomCategory({
+                        label: newCategoryLabel,
+                        emoji: newCategoryEmoji,
+                        type: newCategoryType,
+                      });
+                      if (!result.ok) {
+                        setCategoryError(result.error ?? '');
+                        return;
+                      }
+                      setCategoryError('');
+                      setNewCategoryLabel('');
+                      setNewCategoryEmoji('🏷️');
+                      setCustomCategories(loadCustomCategories());
+                    }}
+                    className="px-4 py-2 text-sm font-bold rounded-xl bg-[#E2D8C6] text-[#5C5248] active:scale-95 transition-all"
+                  >
+                    新增
+                  </button>
+                </div>
+                {categoryError && <p className="text-xs font-bold text-[#CD7A70] mt-2">{categoryError}</p>}
+                <p className="text-xs text-[#82786D] font-bold mt-2">刪除分類不會更動任何既有交易。</p>
               </div>
+
+              {/* 支付方式 */}
+              <div className="py-3">
+                <p className="text-sm font-bold text-[#5C5248] mb-2">支付方式（顯示在快速記帳）</p>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_PAYMENT_METHODS.map(pm => {
+                    const enabled = paymentPrefs.enabled.includes(pm.id);
+                    return (
+                      <button
+                        key={pm.id}
+                        type="button"
+                        onClick={() => setPaymentPrefs(togglePaymentMethod(pm.id))}
+                        className={cn(
+                          'px-3 py-1.5 text-xs font-bold rounded-full border transition-all',
+                          enabled
+                            ? 'bg-[#87A2B4]/15 border-[#87A2B4] text-[#5C5248]'
+                            : 'bg-white/60 border-black/5 text-[#82786D] hover:bg-white',
+                        )}
+                      >
+                        {pm.emoji} {pm.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {paymentPrefs.enabled.length > 1 && (
+                  <div className="mt-3 space-y-1">
+                    {paymentPrefs.enabled.map((id, index) => (
+                      <div key={id} className="flex items-center gap-2 text-xs font-bold text-[#5C5248]">
+                        <span className="w-5 text-[#82786D]">{index + 1}.</span>
+                        <span className="flex-1">{paymentMethodLabel(id)}</span>
+                        <button
+                          type="button"
+                          aria-label={`${paymentMethodLabel(id)} 上移`}
+                          disabled={index === 0}
+                          onClick={() => setPaymentPrefs(movePaymentMethod(id, -1))}
+                          className="px-2 py-1 rounded-lg bg-white/70 border border-black/5 disabled:opacity-30"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`${paymentMethodLabel(id)} 下移`}
+                          disabled={index === paymentPrefs.enabled.length - 1}
+                          onClick={() => setPaymentPrefs(movePaymentMethod(id, 1))}
+                          className="px-2 py-1 rounded-lg bg-white/70 border border-black/5 disabled:opacity-30"
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Section>
+
+            <Section title="隱私">
+              <OptionRow<PetBubbleDisplay>
+                label="泡泡顯示"
+                value={settings.bubbleDisplay}
+                options={[
+                  { value: 'text', label: '只有文字' },
+                  { value: 'count', label: '今日筆數' },
+                  { value: 'todaySpend', label: '今日支出' },
+                  { value: 'budget', label: '預算狀態' },
+                ]}
+                onSelect={v => update({ bubbleDisplay: v, showAmounts: bubbleShowsAmounts({ bubbleDisplay: v }) })}
+              />
+              <OptionRow
+                label="App 鎖定"
+                value={settings.appLock ? 'on' : 'off'}
+                options={[
+                  { value: 'off', label: '關' },
+                  { value: 'on', label: '生物辨識 / 裝置密碼' },
+                ]}
+                onSelect={v => update({ appLock: v === 'on' })}
+              />
+              {settings.appLock && (
+                <OptionRow
+                  label="快速記帳"
+                  value={settings.quickAddWithoutUnlock ? 'free' : 'locked'}
+                  options={[
+                    { value: 'free', label: '免解鎖' },
+                    { value: 'locked', label: '也要驗證' },
+                  ]}
+                  onSelect={v => update({ quickAddWithoutUnlock: v === 'free' })}
+                />
+              )}
+              <p className="text-xs text-[#82786D] font-bold pt-2">
+                預設隱私模式：桌寵不會在畫面上顯示總資產、負債或帳戶餘額。
+              </p>
+            </Section>
+
+            <Section title="帳號與同步">
+              <AccountPanel />
+            </Section>
+
+            {native && (
+              <Section title="權限與診斷">
+                <div className="space-y-2 py-2 text-sm font-bold text-[#5C5248]">
+                  {/*
+                    Which commit is this site actually running? Without it, a page
+                    that looks out of date is indistinguishable from a deploy that
+                    never fired, and the only debugging tool is guessing.
+                  */}
+                  <div className="flex justify-between text-[#82786D]">
+                    <span>網站版本</span>
+                    <span className="font-mono text-xs">
+                      {__BUILD_STAMP__.version} · {__BUILD_STAMP__.commit}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[#82786D]">
+                    <span>建置時間</span>
+                    <span className="font-mono text-xs">
+                      {new Date(__BUILD_STAMP__.builtAt).toLocaleString('zh-TW')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>懸浮視窗權限</span>
+                    <span>{status?.permissionGranted ? '✓ 已允許' : '✕ 未允許'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>通知權限</span>
+                    <span>{status?.notificationsGranted === false ? '✕ 未允許' : '✓ 已允許'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>桌寵服務</span>
+                    <span>{status?.running ? 'Running' : 'Stopped'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>待同步筆數</span>
+                    <span>{status?.pendingCount ?? 0}</span>
+                  </div>
+                  {debugInfo && (
+                    <div className="flex justify-between text-[#82786D]">
+                      <span>上次同步</span>
+                      <span>{debugInfo.lastSyncAt ? new Date(debugInfo.lastSyncAt).toLocaleString() : '—'}</span>
+                    </div>
+                  )}
+                  {debugInfo && (
+                    <div className="flex justify-between text-[#82786D]">
+                      <span>位置</span>
+                      <span>
+                        {debugInfo.edge} ({debugInfo.positionX.toFixed(2)}, {debugInfo.positionY.toFixed(2)})
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-[#82786D]">
+                    <span>資料版本</span>
+                    <span>v{storageVersion}</span>
+                  </div>
+                  <div className="flex justify-between text-[#82786D]">
+                    <span>資料檢查</span>
+                    <span>
+                      {integrity
+                        ? integrity.ok
+                          ? `✓ ${integrity.transactionCount} 筆正常`
+                          : `${integrity.issues.length} 項待確認`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+                {integrity && !integrity.ok && (
+                  <ul className="mt-2 space-y-1 text-xs font-bold text-[#C08A5A]">
+                    {integrity.issues.slice(0, 5).map((issue, i) => (
+                      <li key={i}>• {issue.detail}</li>
+                    ))}
+                    {integrity.issues.length > 5 && <li>• 還有 {integrity.issues.length - 5} 項…</li>}
+                  </ul>
+                )}
+                {settings.enabled && status && !status.permissionGranted && (
+                  <button
+                    type="button"
+                    onClick={startPetFlow}
+                    className="w-full mt-2 py-3 rounded-2xl font-bold bg-[#87A2B4] text-white hover:bg-[#87A2B4]/90 transition-all active:scale-[0.98]"
+                  >
+                    重新開啟權限
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    refreshStatus();
+                    setIntegrity(runIntegrityCheck());
+                  }}
+                  className="w-full mt-2 py-2 text-sm font-bold text-[#82786D] hover:text-[#5C5248] transition-colors"
+                >
+                  重新整理狀態
+                </button>
+              </Section>
             )}
-            <div className="flex justify-between text-[#82786D]">
-              <span>資料版本</span>
-              <span>v{storageVersion}</span>
-            </div>
-            <div className="flex justify-between text-[#82786D]">
-              <span>資料檢查</span>
-              <span>
-                {integrity
-                  ? integrity.ok
-                    ? `✓ ${integrity.transactionCount} 筆正常`
-                    : `${integrity.issues.length} 項待確認`
-                  : '—'}
-              </span>
-            </div>
           </div>
-          {integrity && !integrity.ok && (
-            <ul className="mt-2 space-y-1 text-xs font-bold text-[#C08A5A]">
-              {integrity.issues.slice(0, 5).map((issue, i) => (
-                <li key={i}>• {issue.detail}</li>
-              ))}
-              {integrity.issues.length > 5 && <li>• 還有 {integrity.issues.length - 5} 項…</li>}
-            </ul>
-          )}
-          {settings.enabled && status && !status.permissionGranted && (
-            <button
-              type="button"
-              onClick={startPetFlow}
-              className="w-full mt-2 py-3 rounded-2xl font-bold bg-[#87A2B4] text-white hover:bg-[#87A2B4]/90 transition-all active:scale-[0.98]"
-            >
-              重新開啟權限
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              refreshStatus();
-              setIntegrity(runIntegrityCheck());
-            }}
-            className="w-full mt-2 py-2 text-sm font-bold text-[#82786D] hover:text-[#5C5248] transition-colors"
-          >
-            重新整理狀態
-          </button>
-        </Section>
-      )}
+        )}
+      </div>
+
 
       {/* 匯入確認：合併 / 取代 / 取消 */}
       {importPreview && (

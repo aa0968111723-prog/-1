@@ -1,13 +1,33 @@
 <!doctype html>
-<html lang="en">
+<!--
+  lang MUST match the content.
+
+  This said lang="en" while every string in the app is Traditional Chinese.
+  Mobile Chrome reads that mismatch as "English page containing Chinese" and
+  offers — often applies — auto-translation. Google Translate rewrites text
+  nodes in place, underneath React, and React's next removal of a node it
+  believes it owns then throws:
+
+      Failed to execute 'removeChild' on 'Node':
+      The node to be removed is not a child of this node.
+
+  That is the reported Android/mobile-web crash, and it is why it does not
+  reproduce on desktop, where translation is opt-in rather than aggressive.
+-->
+<html lang="zh-Hant-TW" translate="no">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to real
+         numbers, so the bottom nav clears the Android gesture bar. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Belt and braces alongside lang: tells Google Translate to leave the DOM alone. -->
+    <meta name="google" content="notranslate" />
+    <meta name="theme-color" content="#F5F1EA" />
+    <meta name="description" content="小財 — 快速記帳桌寵。點一下就記完。" />
+    <title>小財記帳</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" class="notranslate"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -1,20 +1,13 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { Transaction, BudgetConfig, RecurringTransaction, Debt, Goal, SpreadsheetRecord } from './types';
-import Dashboard from './components/Dashboard';
+import ErrorBoundary from './components/ErrorBoundary';
+import HomeScreen from './components/HomeScreen';
+import MoreScreen, { type MoreDestination } from './components/MoreScreen';
 import TransactionList from './components/TransactionList';
-import BudgetSettings from './components/BudgetSettings';
-import RecurringSettings from './components/RecurringSettings';
-import DebtManager from './components/DebtManager';
-import GoalPlanner from './components/GoalPlanner';
-import GoalSandbox from './components/GoalSandbox';
-import DebtAdvice from './components/DebtAdvice';
-import Spreadsheet from './components/Spreadsheet';
-import CashflowInference from './components/CashflowInference';
-import TransactionForm from './components/TransactionForm';
 import QuickTransactionForm from './components/QuickTransactionForm';
-import PetSettings from './components/PetSettings';
-import { Wallet, LayoutDashboard, ReceiptText, Calculator, Target, Plus, X, Menu } from 'lucide-react';
+import { LayoutDashboard, ReceiptText, Calculator, Target, Plus, X, MoreHorizontal, ChevronLeft } from 'lucide-react';
 import { cn } from './lib/utils';
+import { useIsMobile } from './lib/useIsMobile';
 import { loadPetSettings, savePetSettings, bubbleShowsAmounts, PetSettings as PetSettingsType } from './lib/petSettings';
 import { FinancePet, isNativePetAvailable } from './lib/petBridge';
 import { drainOutbox } from './lib/outboxSync';
@@ -23,13 +16,69 @@ import { financeRepository } from './lib/financeRepository';
 import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
 import { getQuickCategories } from './lib/quickCategories';
 
-type FinanceTabType = 'overview' | 'transactions' | 'planning' | 'liabilities' | 'advisor' | 'spreadsheet' | 'pet';
+/*
+ * 低頻功能一律 lazy。
+ *
+ * 每天真的會用到的只有首頁、明細、快速記帳，那三個要立刻能用；試算表、負債攤還、
+ * AI、圖表（recharts 本身就不小）沒有理由在開 App 的第一秒就下載並解析。
+ */
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const BudgetSettings = lazy(() => import('./components/BudgetSettings'));
+const RecurringSettings = lazy(() => import('./components/RecurringSettings'));
+const DebtManager = lazy(() => import('./components/DebtManager'));
+const GoalPlanner = lazy(() => import('./components/GoalPlanner'));
+const GoalSandbox = lazy(() => import('./components/GoalSandbox'));
+const DebtAdvice = lazy(() => import('./components/DebtAdvice'));
+const Spreadsheet = lazy(() => import('./components/Spreadsheet'));
+const CashflowInference = lazy(() => import('./components/CashflowInference'));
+const PetSettings = lazy(() => import('./components/PetSettings'));
+const TransactionForm = lazy(() => import('./components/TransactionForm'));
+const AndroidDownloadCard = lazy(() => import('./components/AndroidDownloadCard'));
+
+/**
+ * 手機主導覽只有前四個；其餘是「更多」底下的子頁面。
+ * 桌機維持完整分頁列（這個 PR 不動桌機版）。
+ */
+type FinanceTabType =
+  | 'home'
+  | 'transactions'
+  | 'pet'
+  | 'more'
+  | 'planning'
+  | 'liabilities'
+  | 'advisor'
+  | 'spreadsheet'
+  | 'download';
+
+/** 從「更多」進去的子頁面：手機版標題列要顯示返回鍵。 */
+const MORE_SUBPAGES: FinanceTabType[] = ['planning', 'liabilities', 'advisor', 'spreadsheet', 'download'];
+
+const TAB_TITLES: Record<FinanceTabType, string> = {
+  home: '小財記帳',
+  transactions: '收支明細',
+  pet: '小財',
+  more: '更多',
+  planning: '預算與循環記帳',
+  liabilities: '負債與目標',
+  advisor: 'AI 財務顧問',
+  spreadsheet: '長期試算表',
+  download: '下載 Android App',
+};
+
+/** lazy 分頁載入中的佔位：高度固定，避免載入完成時整頁跳動。 */
+function PanelFallback() {
+  return (
+    <div className="glass rounded-[24px] p-6 min-h-[160px] flex items-center justify-center">
+      <p className="text-sm font-bold text-[#A79C90]">載入中…</p>
+    </div>
+  );
+}
 
 export default function App() {
-  const [financeTab, setFinanceTab] = useState<FinanceTabType>('overview');
+  const [financeTab, setFinanceTab] = useState<FinanceTabType>('home');
+  const isMobile = useIsMobile();
   const [isGlobalAddOpen, setIsGlobalAddOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [isMoreNavOpen, setIsMoreNavOpen] = useState(false);
   const [petSettings, setPetSettings] = useState<PetSettingsType>(() => loadPetSettings());
   // 快速記帳誤按保險：短暫顯示可復原的提示
   const [undoInfo, setUndoInfo] = useState<{ id: string; label: string } | null>(null);
@@ -282,7 +331,7 @@ export default function App() {
         financeRepository.deleteTransaction(event.id);
         syncFromRepository();
       } else if (event.kind === 'openDashboardRequested') {
-        setFinanceTab('overview');
+        setFinanceTab('home');
       } else if (event.kind === 'openPetSettingsRequested') {
         setFinanceTab('pet');
       } else if (event.kind === 'petStopped') {
@@ -432,15 +481,6 @@ export default function App() {
     setSpreadsheetRecords(prev => prev.filter(r => r.id !== id));
   };
 
-  /** One non-sensitive line for the home card: how today is going. */
-  const petStatusLine = useMemo(() => {
-    const today = getLocalDateKey();
-    const count = transactions.filter(t => t.date === today).length;
-    const name = petSettings.petName || '小財';
-    if (count === 0) return `${name}正在陪你 · 今天還沒記帳`;
-    return `${name}正在陪你 · 今天已記 ${count} 筆`;
-  }, [transactions, petSettings.petName]);
-
   const timeGreeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour < 5) return '夜深了，早點休息哦 🌙';
@@ -451,161 +491,201 @@ export default function App() {
     return '夜深了，早點休息哦 🌙';
   }, []);
 
+  const isSubPage = MORE_SUBPAGES.includes(financeTab);
+
+  const desktopTabs: Array<{ tab: FinanceTabType; icon: React.ReactNode; label: string; accent?: boolean }> = [
+    { tab: 'home', icon: <LayoutDashboard size={18} />, label: '財務總覽' },
+    { tab: 'transactions', icon: <ReceiptText size={18} />, label: '收支明細' },
+    { tab: 'planning', icon: <Calculator size={18} />, label: '預算規劃' },
+    { tab: 'liabilities', icon: <Target size={18} />, label: '負債與目標' },
+    { tab: 'advisor', icon: <span className="text-xl">✨</span>, label: 'AI 財務顧問', accent: true },
+    { tab: 'spreadsheet', icon: <span className="text-xl">📝</span>, label: '長期試算表' },
+    { tab: 'pet', icon: <span className="text-xl">🐣</span>, label: '桌寵' },
+  ];
+
+  /* 手機主導覽：四個。中央 ＋ 拿掉了 —— 記一筆在首頁與小財頁都是整頁最大的按鈕。 */
+  const mobileTabs: Array<{ tab: FinanceTabType; icon: React.ReactNode; label: string; match: FinanceTabType[] }> = [
+    { tab: 'home', icon: <span className="text-xl">🏠</span>, label: '首頁', match: ['home'] },
+    { tab: 'transactions', icon: <span className="text-xl">🧾</span>, label: '明細', match: ['transactions'] },
+    { tab: 'pet', icon: <span className="text-xl">🐣</span>, label: '小財', match: ['pet'] },
+    { tab: 'more', icon: <MoreHorizontal size={20} />, label: '更多', match: ['more', ...MORE_SUBPAGES] },
+  ];
+
+  const goFromMore = (destination: MoreDestination) => setFinanceTab(destination);
+
+  const renderPage = () => {
+    switch (financeTab) {
+      case 'home':
+        // 手機首頁刻意不是 Dashboard：三秒看完今天，然後記一筆。
+        return isMobile ? (
+          <HomeScreen
+            transactions={transactions}
+            budgets={budgets}
+            petName={petSettings.petName || '小財'}
+            greeting={timeGreeting}
+            onQuickAdd={() => setIsQuickAddOpen(true)}
+            onOpenTransactions={() => setFinanceTab('transactions')}
+            onOpenPet={() => setFinanceTab('pet')}
+          />
+        ) : (
+          <div className="space-y-8">
+            <Dashboard transactions={transactions} budgets={budgets} debts={debts} recurring={recurring} />
+            <CashflowInference transactions={transactions} debts={debts} goals={goals} />
+          </div>
+        );
+
+      case 'transactions':
+        return (
+          <TransactionList
+            transactions={transactions}
+            onDelete={deleteTransaction}
+            debts={debts}
+            goals={goals}
+            onOpenAdd={() => setIsGlobalAddOpen(true)}
+          />
+        );
+
+      case 'pet':
+        return (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setIsQuickAddOpen(true)}
+              className="w-full min-h-[64px] rounded-[24px] bg-[#87A2B4] text-white font-extrabold text-lg shadow-[0_8px_24px_rgba(135,162,180,0.4)] active:scale-[0.98] transition-transform"
+            >
+              ＋ 記一筆
+            </button>
+            <PetSettings settings={petSettings} onChange={setPetSettings} />
+          </div>
+        );
+
+      case 'more':
+        return <MoreScreen onNavigate={goFromMore} build={__BUILD_STAMP__} />;
+
+      case 'planning':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <BudgetSettings
+              budgets={budgets}
+              onUpdateBudget={updateBudget}
+              onDeleteBudget={deleteBudget}
+              monthlyIncome={monthlyIncome}
+              onUpdateMonthlyIncome={setMonthlyIncome}
+            />
+            <RecurringSettings recurring={recurring} onAdd={addRecurring} onDelete={deleteRecurring} />
+          </div>
+        );
+
+      case 'liabilities':
+        return (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <DebtManager debts={debts} onAdd={addDebt} onDelete={deleteDebt} onUpdate={updateDebt} onAddTransaction={addTransaction} />
+              <GoalPlanner goals={goals} debts={debts} transactions={transactions} monthlyIncome={monthlyIncome} budgets={budgets} onAdd={addGoal} onDelete={deleteGoal} onUpdate={updateGoal} onAddTransaction={addTransaction} />
+            </div>
+            {/* 目標沙盒是桌機上的長期規劃工具，手機上不顯示（資料完全沒有變動） */}
+            {!isMobile && (
+              <GoalSandbox goals={goals} debts={debts} transactions={transactions} monthlyIncome={monthlyIncome} />
+            )}
+          </div>
+        );
+
+      case 'advisor':
+        return (
+          <DebtAdvice
+            debts={debts}
+            monthlyIncome={monthlyIncome}
+            transactions={transactions}
+            budgets={budgets}
+            recurring={recurring}
+            goals={goals}
+          />
+        );
+
+      case 'spreadsheet':
+        return (
+          <Spreadsheet
+            records={spreadsheetRecords}
+            onAdd={addSpreadsheetRecord}
+            onUpdate={updateSpreadsheetRecord}
+            onDelete={deleteSpreadsheetRecord}
+          />
+        );
+
+      case 'download':
+        return <AndroidDownloadCard variant="page" />;
+
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className="min-h-screen font-sans pb-28 sm:pb-0">
-      {/* Navbar */}
+    <div className="min-h-screen font-sans pb-24 sm:pb-0">
       <nav className="glass border-none rounded-none sticky top-0 z-10 p-0 shadow-[0_2px_20px_rgba(180,170,160,0.1)] border-b border-t-0 border-x-0 border-black/5" style={{ borderRadius: 0 }}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between h-auto sm:h-20 py-4 sm:py-0 gap-4">
+          {/* 手機標題列：一行，只說現在在哪一頁 */}
+          <div className="sm:hidden flex items-center gap-1 h-14">
+            {isSubPage && (
+              <button
+                type="button"
+                onClick={() => setFinanceTab('more')}
+                aria-label="返回更多"
+                className="-ml-2 w-10 h-10 flex items-center justify-center rounded-full text-[#5C5248] active:bg-black/5"
+              >
+                <ChevronLeft size={22} />
+              </button>
+            )}
+            <span className="font-extrabold text-[#5C5248] text-lg truncate">
+              {TAB_TITLES[financeTab]}
+            </span>
+          </div>
+
+          {/* 桌機：完整分頁列（這個 PR 不改桌機版） */}
+          <div className="hidden sm:flex sm:items-center justify-between h-20 gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-[#E2D8C6] to-[#C9B9A6] text-[#5C5248] rounded-xl flex items-center justify-center font-extrabold text-xl shadow-sm border border-white/50">
-                F
+              <div className="w-10 h-10 bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] rounded-xl flex items-center justify-center text-xl shadow-sm border border-white/50">
+                🐣
               </div>
               <div className="flex flex-col">
-                <span className="font-extrabold text-[#5C5248] tracking-wide text-lg leading-tight">FinTracker Pro</span>
+                <span className="font-extrabold text-[#5C5248] tracking-wide text-lg leading-tight">小財記帳</span>
                 <span className="text-[10px] text-[#82786D] hidden md:block font-bold mt-0.5">{timeGreeting}</span>
               </div>
             </div>
-            
-            {/* Primary Navigation */}
-            {/* 桌機／平板：完整分頁列。手機改用底部導覽（見頁面底部） */}
-            <div className="hidden sm:flex items-center bg-[#F5EFEB]/50 p-1.5 rounded-2xl border border-black/5 shadow-inner overflow-x-auto scrollbar-hide w-full sm:w-auto">
-              <button
-                onClick={() => setFinanceTab('overview')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
-                  financeTab === 'overview' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <LayoutDashboard size={18} /> <span className="hidden sm:inline">財務總覽</span>
-              </button>
-              <button
-                onClick={() => setFinanceTab('transactions')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
-                  financeTab === 'transactions' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <ReceiptText size={18} /> <span className="hidden sm:inline">收支明細</span>
-              </button>
-              <button
-                onClick={() => setFinanceTab('planning')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
-                  financeTab === 'planning' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <Calculator size={18} /> <span className="hidden sm:inline">預算規劃</span>
-              </button>
-              <button
-                onClick={() => setFinanceTab('liabilities')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
-                  financeTab === 'liabilities' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <Target size={18} /> <span className="hidden sm:inline">負債與目標</span>
-              </button>
-              <button
-                onClick={() => setFinanceTab('advisor')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
-                  financeTab === 'advisor' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#D1A066] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <span className="text-xl">✨</span> <span className="hidden sm:inline">AI 財務顧問</span>
-              </button>
-              <button
-                onClick={() => setFinanceTab('spreadsheet')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all", 
-                  financeTab === 'spreadsheet' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <span className="text-xl">📝</span> <span className="hidden sm:inline">長期試算表</span>
-              </button>
-              <button
-                onClick={() => setFinanceTab('pet')}
-                className={cn("whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all",
-                  financeTab === 'pet' ? "bg-white text-[#5C5248] shadow-sm border border-black/5" : "text-[#82786D] hover:text-[#5C5248] hover:bg-white/60")}
-              >
-                <span className="text-xl">🐣</span> <span className="hidden sm:inline">桌寵</span>
-              </button>
+
+            <div className="flex items-center bg-[#F5EFEB]/50 p-1.5 rounded-2xl border border-black/5 shadow-inner overflow-x-auto scrollbar-hide">
+              {desktopTabs.map(item => (
+                <button
+                  key={item.tab}
+                  onClick={() => setFinanceTab(item.tab)}
+                  className={cn(
+                    'whitespace-nowrap px-4 sm:px-5 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all',
+                    financeTab === item.tab
+                      ? 'bg-white text-[#5C5248] shadow-sm border border-black/5'
+                      : cn(item.accent ? 'text-[#D1A066]' : 'text-[#82786D]', 'hover:text-[#5C5248] hover:bg-white/60'),
+                  )}
+                >
+                  {item.icon} <span className="hidden sm:inline">{item.label}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-500">
-        <div className="space-y-6">
-          {/* Finance Tab Content */}
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {financeTab === 'overview' && (
-              <div className="space-y-8">
-                {/* 小財入口卡：桌寵是最快的記帳路徑，但 Dashboard 本身不卡通化 */}
-                <div className="glass rounded-[24px] p-4 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] flex items-center justify-center text-2xl shadow-inner border border-white/60 shrink-0">
-                    🐣
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-extrabold text-[#5C5248] truncate">{timeGreeting}</p>
-                    <p className="text-xs text-[#82786D] font-bold truncate">{petStatusLine}</p>
-                  </div>
-                  <button
-                    onClick={() => setIsQuickAddOpen(true)}
-                    className="px-4 min-h-[44px] rounded-2xl font-bold text-sm bg-[#87A2B4] text-white hover:bg-[#87A2B4]/90 active:scale-95 transition-all shrink-0"
-                  >
-                    快速記帳
-                  </button>
-                </div>
-                <Dashboard transactions={transactions} budgets={budgets} debts={debts} recurring={recurring} />
-                <CashflowInference transactions={transactions} debts={debts} goals={goals} />
-              </div>
-            )}
-            {financeTab === 'transactions' && (
-              <TransactionList 
-                transactions={transactions} 
-                onDelete={deleteTransaction} 
-                debts={debts}
-                goals={goals} 
-                onOpenAdd={() => setIsGlobalAddOpen(true)}
-              />
-            )}
-            {financeTab === 'planning' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <BudgetSettings 
-                  budgets={budgets} 
-                  onUpdateBudget={updateBudget} 
-                  onDeleteBudget={deleteBudget} 
-                  monthlyIncome={monthlyIncome}
-                  onUpdateMonthlyIncome={setMonthlyIncome}
-                />
-                <RecurringSettings recurring={recurring} onAdd={addRecurring} onDelete={deleteRecurring} />
-              </div>
-            )}
-            {financeTab === 'liabilities' && (
-              <div className="space-y-8">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <DebtManager debts={debts} onAdd={addDebt} onDelete={deleteDebt} onUpdate={updateDebt} onAddTransaction={addTransaction} />
-                  <GoalPlanner goals={goals} debts={debts} transactions={transactions} monthlyIncome={monthlyIncome} budgets={budgets} onAdd={addGoal} onDelete={deleteGoal} onUpdate={updateGoal} onAddTransaction={addTransaction} />
-                </div>
-                <GoalSandbox goals={goals} debts={debts} transactions={transactions} monthlyIncome={monthlyIncome} />
-              </div>
-            )}
-            {financeTab === 'advisor' && (
-              <DebtAdvice 
-                debts={debts} 
-                monthlyIncome={monthlyIncome} 
-                transactions={transactions} 
-                budgets={budgets} 
-                recurring={recurring} 
-                goals={goals} 
-              />
-            )}
-            {financeTab === 'spreadsheet' && (
-              <Spreadsheet
-                records={spreadsheetRecords}
-                onAdd={addSpreadsheetRecord}
-                onUpdate={updateSpreadsheetRecord}
-                onDelete={deleteSpreadsheetRecord}
-              />
-            )}
-            {financeTab === 'pet' && (
-              <PetSettings settings={petSettings} onChange={setPetSettings} />
-            )}
-          </div>
-        </div>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-8">
+        {/*
+          每一頁自己一個 ErrorBoundary，key 綁在分頁上。
+          邊界放在 main 裡面而不是包住整個 App，所以就算某一頁炸了，底部導覽還在，
+          使用者可以直接切到別頁 —— 而不是整個畫面變成一張錯誤卡片。
+          換分頁時 key 改變，上一頁的錯誤狀態不會跟著留下來。
+        */}
+        <ErrorBoundary key={financeTab} fallbackTitle={`${TAB_TITLES[financeTab]}出了點狀況`}>
+          <Suspense fallback={<PanelFallback />}>{renderPage()}</Suspense>
+        </ErrorBoundary>
       </main>
 
-      {/* 桌機／平板的浮動按鈕；手機改用底部導覽中央的 ＋ */}
+      {/* 桌機浮動按鈕 */}
       <button
         onClick={() => setIsQuickAddOpen(true)}
         aria-label="快速記帳"
@@ -623,110 +703,44 @@ export default function App() {
         <Plus size={26} />
       </button>
 
-      {/* 手機底部導覽：中央 ＋ 讓桌寵停用時 App 本身依然好用 */}
+      {/* 手機底部導覽：四個分頁，就這樣 */}
       <nav
         aria-label="主要導覽"
         className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-[#FAF6F0]/95 backdrop-blur border-t border-black/5 pb-[env(safe-area-inset-bottom)]"
       >
-        <div className="flex items-end justify-around px-2 pt-1.5">
-          {([
-            { tab: 'overview' as FinanceTabType, icon: <LayoutDashboard size={20} />, label: '總覽' },
-            { tab: 'transactions' as FinanceTabType, icon: <ReceiptText size={20} />, label: '明細' },
-          ]).map(item => (
-            <button
-              key={item.tab}
-              onClick={() => setFinanceTab(item.tab)}
-              aria-current={financeTab === item.tab ? 'page' : undefined}
-              className={cn(
-                'flex flex-col items-center gap-0.5 min-w-[64px] min-h-[48px] justify-center rounded-xl transition-colors',
-                financeTab === item.tab ? 'text-[#5C5248]' : 'text-[#A79C90]',
-              )}
-            >
-              {item.icon}
-              <span className="text-[10px] font-bold">{item.label}</span>
-            </button>
-          ))}
-
-          <button
-            onClick={() => setIsQuickAddOpen(true)}
-            aria-label="快速記帳"
-            className="-mt-6 w-14 h-14 rounded-full bg-[#87A2B4] text-white flex items-center justify-center shadow-[0_8px_24px_rgba(135,162,180,0.5)] active:scale-95 transition-transform shrink-0"
-          >
-            <Plus size={26} />
-          </button>
-
-          {([
-            { tab: 'liabilities' as FinanceTabType, icon: <Target size={20} />, label: '目標' },
-          ]).map(item => (
-            <button
-              key={item.tab}
-              onClick={() => setFinanceTab(item.tab)}
-              aria-current={financeTab === item.tab ? 'page' : undefined}
-              className={cn(
-                'flex flex-col items-center gap-0.5 min-w-[64px] min-h-[48px] justify-center rounded-xl transition-colors',
-                financeTab === item.tab ? 'text-[#5C5248]' : 'text-[#A79C90]',
-              )}
-            >
-              {item.icon}
-              <span className="text-[10px] font-bold">{item.label}</span>
-            </button>
-          ))}
-
-          <button
-            onClick={() => setIsMoreNavOpen(true)}
-            aria-label="更多分頁"
-            aria-expanded={isMoreNavOpen}
-            className={cn(
-              'flex flex-col items-center gap-0.5 min-w-[64px] min-h-[48px] justify-center rounded-xl transition-colors',
-              ['planning', 'advisor', 'spreadsheet', 'pet'].includes(financeTab) ? 'text-[#5C5248]' : 'text-[#A79C90]',
-            )}
-          >
-            <Menu size={20} />
-            <span className="text-[10px] font-bold">更多</span>
-          </button>
+        <div className="flex items-stretch justify-around px-2 py-1">
+          {mobileTabs.map(item => {
+            const active = item.match.includes(financeTab);
+            return (
+              <button
+                key={item.tab}
+                onClick={() => setFinanceTab(item.tab)}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex flex-col items-center gap-0.5 flex-1 min-h-[52px] justify-center rounded-xl transition-colors',
+                  active ? 'text-[#5C5248]' : 'text-[#A79C90]',
+                )}
+              >
+                {item.icon}
+                <span className="text-[10px] font-bold">{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
-      {/* 手機「更多」分頁選單 */}
-      {isMoreNavOpen && (
-        <div className="sm:hidden fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="absolute inset-0" onClick={() => setIsMoreNavOpen(false)} />
-          <div className="relative w-full bg-[#FAF6F0] rounded-t-[24px] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-1 animate-in slide-in-from-bottom-4 duration-200">
-            {([
-              { tab: 'planning' as FinanceTabType, label: '📊 預算規劃' },
-              { tab: 'advisor' as FinanceTabType, label: '✨ AI 財務顧問' },
-              { tab: 'spreadsheet' as FinanceTabType, label: '📝 長期試算表' },
-              { tab: 'pet' as FinanceTabType, label: '🐣 桌寵設定' },
-            ]).map(item => (
-              <button
-                key={item.tab}
-                onClick={() => {
-                  setFinanceTab(item.tab);
-                  setIsMoreNavOpen(false);
-                }}
-                className="w-full text-left px-4 min-h-[48px] rounded-2xl font-bold text-[#5C5248] hover:bg-white/70 active:bg-white transition-colors"
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Quick Add Modal（桌寵 / 極速記帳）：簡化版，仍走同一個 addTransaction */}
+      {/* Quick Add：手機從底部升起，桌機置中 */}
       {isQuickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-md animate-in fade-in duration-200">
-          <div
-            className="absolute inset-0"
-            onClick={() => setIsQuickAddOpen(false)}
-          />
+          <div className="absolute inset-0" onClick={() => setIsQuickAddOpen(false)} />
           <div className="bg-[#FAF6F0] w-full max-w-md rounded-t-[24px] sm:rounded-[24px] shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
             <div className="flex items-center justify-between p-4 border-b border-black/5 bg-white/50">
               <h2 className="font-extrabold text-[#5C5248] text-lg flex items-center gap-2">
-                🐣 今天花多少？
+                🐣 記一筆
               </h2>
               <button
                 onClick={() => setIsQuickAddOpen(false)}
+                aria-label="關閉"
                 className="p-2 text-[#82786D] hover:text-[#5C5248] hover:bg-white rounded-full transition-all"
               >
                 <X size={18} />
@@ -760,7 +774,7 @@ export default function App() {
       {locked && (
         <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-5 bg-[#FAF6F0]">
           <div className="text-6xl">🔒</div>
-          <p className="font-extrabold text-[#5C5248] text-lg">FinTracker 已鎖定</p>
+          <p className="font-extrabold text-[#5C5248] text-lg">小財記帳已鎖定</p>
           <p className="text-sm text-[#82786D] font-bold">驗證後查看完整財務資料</p>
           <button
             onClick={() => {
@@ -777,35 +791,35 @@ export default function App() {
         </div>
       )}
 
-      {/* Global Add Modal */}
+      {/* 完整新增表單（桌機的 ＋，以及明細頁的「新增」） */}
       {isGlobalAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md animate-in fade-in duration-200">
-          <div 
-            className="absolute inset-0 pointer-events-none" 
-            onClick={() => setIsGlobalAddOpen(false)}
-          />
+          <div className="absolute inset-0 pointer-events-none" onClick={() => setIsGlobalAddOpen(false)} />
           <div className="bg-[#FAF6F0] w-full max-w-md rounded-[24px] shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between p-5 border-b border-black/5 bg-white/50">
-               <h2 className="font-extrabold text-[#5C5248] text-lg flex items-center gap-2">
-                 快速記一筆
-               </h2>
-               <button 
-                 onClick={() => setIsGlobalAddOpen(false)} 
-                 className="p-2 text-[#82786D] hover:text-[#5C5248] hover:bg-white rounded-full transition-all"
-               >
-                 <X size={18} />
-               </button>
+              <h2 className="font-extrabold text-[#5C5248] text-lg flex items-center gap-2">
+                記一筆（完整）
+              </h2>
+              <button
+                onClick={() => setIsGlobalAddOpen(false)}
+                aria-label="關閉"
+                className="p-2 text-[#82786D] hover:text-[#5C5248] hover:bg-white rounded-full transition-all"
+              >
+                <X size={18} />
+              </button>
             </div>
             <div className="p-2 pb-4 max-h-[80vh] overflow-y-auto scrollbar-hide">
-               <TransactionForm 
+              <Suspense fallback={<PanelFallback />}>
+                <TransactionForm
                   debts={debts}
                   goals={goals}
-                  onAddTransaction={(t) => {
+                  onAddTransaction={t => {
                     addTransaction(t);
                     setIsGlobalAddOpen(false);
-                  }} 
+                  }}
                 />
-             </div>
+              </Suspense>
+            </div>
           </div>
         </div>
       )}

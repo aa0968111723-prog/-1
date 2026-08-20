@@ -203,7 +203,8 @@ export default function QuickTransactionForm({
         </button>
       </div>
 
-      {/* 更多：完整分類 / 備註 / 支付方式 */}
+      {/* 更多：完整分類 / 備註 / 支付方式 / 自然語言 —— 平常的流程是金額 → 分類 → 記下來，
+          這些是需要時才展開的東西，不該擋在中間 */}
       {showMore && (
         <div className="space-y-3 bg-white/40 border border-black/5 rounded-2xl p-3">
           <select
@@ -241,38 +242,37 @@ export default function QuickTransactionForm({
               </option>
             ))}
           </select>
+          {/* 自然語言：認得就直接記，認不出來不會亂猜 */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <MessageSquareText size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#82786D]/60" />
+            <input
+              type="text"
+              value={nlText}
+              onChange={e => setNlText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleNlSubmit();
+              }}
+              placeholder="快速說：午餐120、昨天晚餐180"
+              aria-label="自然語言記帳"
+              className="w-full pl-9 pr-3 py-2.5 text-sm bg-white/60 border border-black/5 text-[#5C5248] font-bold placeholder-[#82786D]/40 rounded-xl outline-none focus:ring-2 focus:ring-[#87A2B4]/40"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleNlSubmit}
+            disabled={!nlText.trim()}
+            className="px-4 py-2.5 text-sm font-bold rounded-xl bg-[#E2D8C6] text-[#5C5248] disabled:opacity-40 active:scale-95 transition-all"
+          >
+            解析
+          </button>
         </div>
-      )}
-
-      {/* 自然語言快速記 */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <MessageSquareText size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#82786D]/60" />
-          <input
-            type="text"
-            value={nlText}
-            onChange={e => setNlText(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') handleNlSubmit();
-            }}
-            placeholder="快速說：午餐120、昨天晚餐180"
-            aria-label="自然語言記帳"
-            className="w-full pl-9 pr-3 py-2.5 text-sm bg-white/60 border border-black/5 text-[#5C5248] font-bold placeholder-[#82786D]/40 rounded-xl outline-none focus:ring-2 focus:ring-[#87A2B4]/40"
-          />
+        {nlHint && (
+          <p role="status" className="text-xs font-bold text-[#C08A5A] -mt-2">
+            {nlHint}
+          </p>
+        )}
         </div>
-        <button
-          type="button"
-          onClick={handleNlSubmit}
-          disabled={!nlText.trim()}
-          className="px-4 py-2.5 text-sm font-bold rounded-xl bg-[#E2D8C6] text-[#5C5248] disabled:opacity-40 active:scale-95 transition-all"
-        >
-          解析
-        </button>
-      </div>
-      {nlHint && (
-        <p role="status" className="text-xs font-bold text-[#C08A5A] -mt-2">
-          {nlHint}
-        </p>
       )}
 
       {/* 記下來 */}

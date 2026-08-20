@@ -33,6 +33,8 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 
 export default function TransactionList({ transactions, onDelete, onOpenAdd, debts = [], goals = [] }: TransactionListProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  // 手機上只有「全部／收入／支出」是常用的；其餘篩選展開才出現。
+  const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -94,14 +96,26 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
       const note = `"${(t.note || '').replace(/"/g, '""')}"`;
       return `${t.date},${type},${t.category},${t.amount},${note}`;
     });
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers.concat(rows).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `transaction_history_${getLocalDateKey()}.csv`);
-    document.body.appendChild(link);
+    // A Blob, not a data: URI, and never inserted into the document.
+    //
+    // Two separate bugs were here. First, appending to and removing from
+    // document.body races React's own reconciliation and is one of the ways a
+    // page ends up throwing "removeChild: the node to be removed is not a
+    // child of this node" — a detached anchor clicks perfectly well in every
+    // modern browser, so there is no reason to insert it at all.
+    //
+    // Second, encodeURI() does NOT escape '#'. A note containing a hash — 
+    // "#5 便當" — made the browser treat everything after it as a fragment,
+    // silently truncating the export. A Blob carries the bytes verbatim and
+    // has no URL-length ceiling either, which matters on mobile.
+    const csv = '\uFEFF' + headers.concat(rows).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `transaction_history_${getLocalDateKey()}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   if (transactions.length === 0) {
@@ -135,9 +149,9 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
 
   return (
     <div className="glass overflow-hidden shadow-sm">
-      <div className="p-6 border-b border-black/5 space-y-4">
+      <div className="p-4 sm:p-6 border-b border-black/5 space-y-3 sm:space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h3 className="text-lg font-bold text-[#5C5248] shrink-0">詳細交易紀錄</h3>
+          <h3 className="hidden sm:block text-lg font-bold text-[#5C5248] shrink-0">詳細交易紀錄</h3>
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="relative flex-1 sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#82786D]/60" size={16} />
@@ -153,8 +167,10 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
           </div>
         </div>
         
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-           <div className="flex items-center gap-2 text-[#82786D]/70 text-sm">
+        {/* 手機上只留「全部／收入／支出」；月份、標籤、CSV 收在「更多篩選」裡。
+            桌機維持一整排。 */}
+        <div className="flex flex-wrap items-center gap-3 sm:pt-2">
+           <div className="hidden sm:flex items-center gap-2 text-[#82786D]/70 text-sm">
              <Filter size={14} /> 篩選:
            </div>
            <div className="flex bg-[#EAE4DB]/50 p-1 rounded-lg border border-black/5 shadow-inner">
@@ -171,7 +187,18 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
                 className={cn("px-3 py-1 rounded-md text-xs font-bold transition-all", filterType === 'expense' ? "bg-[#CD7A70]/20 text-[#CD7A70]" : "text-[#82786D] hover:text-[#CD7A70]")}
               >支出</button>
            </div>
-           
+
+           <button
+             type="button"
+             onClick={() => setShowFilters(v => !v)}
+             aria-expanded={showFilters}
+             className="sm:hidden flex items-center gap-1.5 text-xs font-bold text-[#82786D] px-3 py-1.5 rounded-lg border border-black/5 bg-white/50"
+           >
+             <Filter size={14} /> 更多篩選
+           </button>
+        </div>
+
+        <div className={cn('flex flex-wrap items-center gap-3', !showFilters && 'hidden sm:flex')}>
            <select 
              value={filterMonth}
              onChange={(e) => setFilterMonth(e.target.value)}
@@ -268,7 +295,8 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
                         "font-extrabold tabular-nums text-sm",
                         isIncome ? "text-[#769C7C]" : "text-[#CD7A70]"
                       )}>
-                        {isIncome ? '+' : '-'}{formatCurrency(tx.amount)}
+                        <span>{isIncome ? '+' : '-'}</span>
+                        <span>{formatCurrency(tx.amount)}</span>
                       </span>
                       <button 
                         onClick={() => onDelete(tx.id)}

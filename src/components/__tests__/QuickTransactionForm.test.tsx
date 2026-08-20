@@ -54,6 +54,10 @@ describe('QuickTransactionForm', () => {
     render(
       <QuickTransactionForm transactions={[]} fastMode={false} onAddTransaction={onAdd} />,
     );
+    // 自然語言收在「更多」裡：預設流程是金額 → 分類 → 記下來，不被輸入框擋住。
+    expect(screen.queryByLabelText('自然語言記帳')).toBeNull();
+    fireEvent.click(screen.getByText('更多'));
+
     fireEvent.change(screen.getByLabelText('自然語言記帳'), { target: { value: '午餐120' } });
     fireEvent.click(screen.getByText('解析'));
 

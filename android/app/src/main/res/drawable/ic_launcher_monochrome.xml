@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon silhouette (Android 13+). Same character as the raster
+  foreground, flattened to one shape: the launcher tints it, so anything with
+  internal colour would just disappear. Geometry sits inside the adaptive
+  safe zone (the middle 72dp of 108dp).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- sprout -->
+    <path
+        android:pathData="M53.6,41.8 L57.6,25.2 L63,30.6 L58,41.8 Z"
+        android:fillColor="#000000" />
+
+    <!-- left wing -->
+    <path
+        android:pathData="M27.6,63 a4.7,6.8 0 1,0 9.4,0 a4.7,6.8 0 1,0 -9.4,0"
+        android:fillColor="#000000" />
+
+    <!-- right wing -->
+    <path
+        android:pathData="M71,63 a4.7,6.8 0 1,0 9.4,0 a4.7,6.8 0 1,0 -9.4,0"
+        android:fillColor="#000000" />
+
+    <!-- body -->
+    <path
+        android:pathData="M32.8,58 a21.2,20.5 0 1,0 42.4,0 a21.2,20.5 0 1,0 -42.4,0"
+        android:fillColor="#000000" />
+</vector>
