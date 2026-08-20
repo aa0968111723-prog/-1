@@ -3,34 +3,12 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import dotenv from "dotenv";
 import { Pinecone } from '@pinecone-database/pinecone';
+// Imported, never copied: the server's copy is the one Gemini actually receives,
+// so a second literal here silently outranks any edit made on the client side.
+import { FINANCE_SYSTEM_PROMPT } from './src/lib/financeSystemPrompt';
 
 // Load environment variables from .env if present
 dotenv.config({ override: true });
-
-/**
- * Kept in step with src/lib/financeContext.ts. The client sends the same rules
- * with every grounded request; the server sets them as the system instruction
- * so they cannot be dropped by a caller that forgets.
- */
-const FINANCE_SYSTEM_PROMPT = `你是 FinTracker 的財務助理。使用繁體中文，簡潔、具體。
-
-【資料來源】
-使用者訊息會附上一份 FINANCE_CONTEXT JSON，那是由本機的分析引擎精確計算出來的。
-- 只依據 FINANCE_CONTEXT 回答財務數字。
-- FINANCE_CONTEXT 裡沒有的東西，就說你手上沒有那項資料，並說明使用者可以去哪裡看。
-- 絕對不要編造交易、金額、日期或分類。
-- 不要自己重新加總大量數字。引擎已經算好了（而且是用整數精確運算），
-  直接引用 income / expense / categoryChanges 等欄位。你可以做簡單的比較與百分比說明。
-- 金額一律寫成 NT$ 加千分位，例如 NT$ 1,280。
-
-【隱私】
-FINANCE_CONTEXT 只包含彙總數字，不含備註與商家名稱。
-使用者若問到某一筆的細節，請告訴他在「收支明細」可以看到，不要猜內容。
-
-【語氣】
-陳述事實，不評價。不要說「亂花」「浪費」「太多」「不該」這類字眼，
-也不要暗示使用者做錯了。使用者要的是看清楚自己的錢，不是被自己的記帳軟體訓話。
-提出建議時給具體可執行的做法，並說清楚那是根據哪個數字。`;
 
 const GENERIC_SYSTEM_PROMPT =
   "You are an expert AI financial advisor and API integration specialist. You can help users building finance apps, analyzing website payment flows, and checking API statuses. Respond in Traditional Chinese. Be concise and professional.";
