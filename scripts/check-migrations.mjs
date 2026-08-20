@@ -35,14 +35,46 @@ for (const f of files) {
 
 const all = files.map(f => readFileSync(`${DIR}/${f}`, 'utf8')).join('\n');
 
+/**
+ * Which tables are actually covered by an RLS statement.
+ *
+ * The first version of this asked "does the table name appear in quotes
+ * anywhere", which is not the same question. A table created with no RLS at
+ * all passed simply because its name showed up in an unrelated string — the
+ * gate reported "RLS present for every finance table" and exited 0. A security
+ * gate that answers a nearby question is worse than no gate, because it is
+ * believed.
+ *
+ * Now: a table counts as guarded only if it is either altered directly, or
+ * listed in an array inside a DO block that itself enables RLS.
+ */
+function tablesWithRls(sql) {
+  const guarded = new Set();
+
+  // Direct: alter table public.foo enable row level security
+  for (const m of sql.matchAll(/alter\s+table\s+(?:only\s+)?public\.([a-z0-9_]+)\s+enable\s+row\s+level\s+security/gi)) {
+    guarded.add(m[1].toLowerCase());
+  }
+
+  // Looped: a DO block that enables RLS, applied over a literal array of names.
+  for (const block of sql.matchAll(/do\s*\$\$([\s\S]*?)\$\$\s*;/gi)) {
+    const body = block[1];
+    if (!/enable\s+row\s+level\s+security/i.test(body)) continue;
+    for (const arr of body.matchAll(/array\s*\[([^\]]*)\]/gi)) {
+      for (const name of arr[1].matchAll(/'([a-z0-9_]+)'/gi)) {
+        guarded.add(name[1].toLowerCase());
+      }
+    }
+  }
+  return guarded;
+}
+
+const guardedTables = tablesWithRls(all);
+
 for (const table of MUST_HAVE_RLS) {
   const created = new RegExp(`create table[^;]*\\bpublic\\.${table}\\b`, 'i').test(all);
   if (!created) continue;
-  // Either named directly, or covered by a loop that lists it.
-  const guarded =
-    new RegExp(`enable row level security[^;]*${table}`, 'i').test(all) ||
-    new RegExp(`'${table}'`).test(all);
-  if (!guarded) {
+  if (!guardedTables.has(table.toLowerCase())) {
     errors.push(`table public.${table} is created but never has RLS enabled`);
   }
 }
