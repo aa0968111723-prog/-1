@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, ShieldCheck, Smartphone, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
+import { Download, ShieldCheck, Smartphone, ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import {
   ReleaseManifest,
   fetchLatestRelease,
@@ -37,8 +37,13 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
   const [showDetails, setShowDetails] = useState(false);
   const env = runtimeEnvironment;
 
+  // A counter rather than a bare function, so the effect owns cancellation and
+  // a retry cannot race an in-flight request into setting stale state.
+  const [reloadToken, setReloadToken] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     fetchLatestRelease().then(result => {
       if (cancelled) return;
       setManifest(result.manifest);
@@ -48,7 +53,7 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadToken]);
 
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : '';
   const downloadPageUrl = `${siteUrl}${DOWNLOAD_PAGE_PATH}`;
@@ -106,19 +111,31 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
             </p>
           </>
         ) : (
-          <div className="w-full p-4 rounded-2xl bg-[#EAE4DB]/60 text-center">
-            <p className="text-sm font-bold text-[#5C5248]">
+          <div className="w-full p-4 rounded-2xl bg-[#EAE4DB]/60 text-center space-y-2">
+            <p className="text-sm font-extrabold text-[#5C5248]">
               {error === 'not-published'
-                ? '還沒有發布任何 Android 版本'
+                ? 'Android App 尚未發布'
                 : error === 'malformed'
                   ? '版本資訊讀取失敗'
                   : '目前連不上版本資訊'}
             </p>
-            <p className="text-xs font-bold text-[#A79C90] mt-1">
+            <p className="text-xs font-bold text-[#A79C90]">
               {error === 'not-published'
-                ? '第一個版本發布後，這裡就會出現下載按鈕。'
-                : '請稍後再試，或確認網路連線。'}
+                ? '第一個版本發布之後，這裡就會出現下載按鈕。'
+                : '可能是網路問題，也可能是發布服務暫時無法連線。'}
             </p>
+            {/*
+              A dead end with no action is the worst version of this state. The
+              manifest is fetched once on mount, so without this the only way to
+              retry is a full page reload.
+            */}
+            <button
+              type="button"
+              onClick={() => setReloadToken(t => t + 1)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-black/5 text-xs font-extrabold text-[#5C5248] hover:bg-black/[0.02] transition-all active:scale-[0.98]"
+            >
+              <RefreshCw size={13} /> 重新讀取版本
+            </button>
           </div>
         )}
       </div>

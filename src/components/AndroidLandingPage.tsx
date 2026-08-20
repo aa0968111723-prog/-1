@@ -1,5 +1,4 @@
 import AndroidDownloadCard from './AndroidDownloadCard';
-import { DOWNLOAD_PAGE_PATH } from '../lib/appRelease';
 
 /**
  * /app/android — the page a QR code or a shared link lands on.
@@ -64,7 +63,7 @@ export default function AndroidLandingPage() {
         <footer className="text-center text-xs font-bold text-[#A79C90] pb-6">
           <a href="/" className="hover:text-[#5C5248] underline">回到 FinTracker</a>
           <span className="mx-2">·</span>
-          <span className="font-mono">{DOWNLOAD_PAGE_PATH}</span>
+          <span className="font-mono">{__BUILD_STAMP__.version} · {__BUILD_STAMP__.commit}</span>
         </footer>
       </div>
     </div>

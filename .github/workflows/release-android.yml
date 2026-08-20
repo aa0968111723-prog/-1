@@ -199,6 +199,90 @@ jobs:
           echo "::warning::The APK and manifest are still attached as build artifacts."
           echo "::warning::See docs/ANDROID_DISTRIBUTION.md for the secrets this needs."
 
+      # ------------------------------------------------------------------
+      # Post-publish verification.
+      #
+      # A green workflow only proves the upload call returned 2xx. It does not
+      # prove a stranger can actually download the APK, which is the only thing
+      # the user cares about. So fetch what was just published the way a real
+      # visitor would — anonymously, no auth header, over the public URL — and
+      # check the bytes against the manifest.
+      #
+      # This runs on the runner because it has open network access; the
+      # development environment this was authored in cannot reach *.supabase.co
+      # at all, so verification here is the only place it can be real.
+      # ------------------------------------------------------------------
+      - name: Verify the published download works anonymously
+        if: steps.cfg.outputs.publish == 'true' && steps.meta.outputs.channel == 'production'
+        env:
+          PUBLIC_BASE: ${{ secrets.RELEASE_PUBLIC_BASE || 'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases' }}
+          EXPECT_SHA: ${{ steps.artifact.outputs.sha256 }}
+          EXPECT_SIZE: ${{ steps.artifact.outputs.size }}
+          EXPECT_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          MANIFEST_URL="${PUBLIC_BASE}/android/latest.json"
+
+          echo "GET $MANIFEST_URL"
+          # Deliberately NO Authorization header: this must work for a stranger.
+          code=$(curl -sS -o /tmp/latest.json -w '%{http_code}' "$MANIFEST_URL")
+          echo "latest.json -> HTTP $code"
+          [ "$code" = "200" ] || { echo "::error::latest.json is not publicly readable (HTTP $code)"; exit 1; }
+
+          python3 - <<'NODE'
+          import json, os, sys
+          m = json.load(open('/tmp/latest.json'))
+          for k in ('version','versionCode','platform','minAndroid','channel','apkUrl','sha256','size','releasedAt'):
+              if k not in m:
+                  print(f"::error::latest.json is missing required field {k}"); sys.exit(1)
+          if m['channel'] != 'production':
+              print(f"::error::channel is {m['channel']}, expected production"); sys.exit(1)
+          if m['version'] != os.environ['EXPECT_VERSION']:
+              print(f"::error::version {m['version']} != {os.environ['EXPECT_VERSION']}"); sys.exit(1)
+          if m['sha256'] != os.environ['EXPECT_SHA']:
+              print("::error::manifest sha256 does not match the APK that was just built"); sys.exit(1)
+          print(f"manifest OK: {m['version']} code {m['versionCode']} channel {m['channel']}")
+          print(m['apkUrl'])
+          open('/tmp/apkurl','w').write(m['apkUrl'])
+          NODE
+
+          APK_URL=$(cat /tmp/apkurl)
+          echo "GET $APK_URL"
+          code=$(curl -sSL -o /tmp/downloaded.apk -w '%{http_code}' "$APK_URL")
+          ctype=$(curl -sSLI -o /dev/null -w '%{content_type}' "$APK_URL")
+          echo "apk -> HTTP $code, content-type: $ctype"
+          [ "$code" = "200" ] || { echo "::error::APK is not publicly downloadable (HTTP $code)"; exit 1; }
+
+          SIZE=$(stat -c%s /tmp/downloaded.apk)
+          SHA=$(sha256sum /tmp/downloaded.apk | cut -d" " -f1)
+          echo "downloaded: $SIZE bytes, sha256 $SHA"
+          [ "$SIZE" -gt 0 ] || { echo "::error::downloaded APK is empty"; exit 1; }
+          [ "$SIZE" = "$EXPECT_SIZE" ] || { echo "::error::size $SIZE != manifest $EXPECT_SIZE"; exit 1; }
+          [ "$SHA" = "$EXPECT_SHA" ] || { echo "::error::sha256 mismatch: downloaded $SHA, manifest $EXPECT_SHA"; exit 1; }
+
+          # An APK is a zip; if what came back is an XML error page or a JSON
+          # 401 body, this is where it shows up rather than on a user's phone.
+          file /tmp/downloaded.apk
+          head -c 2 /tmp/downloaded.apk | grep -q 'PK' || { echo "::error::downloaded file is not a zip/APK"; exit 1; }
+
+          {
+            echo "### Android download verified"
+            echo ""
+            echo "| check | result |"
+            echo "|---|---|"
+            echo "| latest.json | HTTP 200 |"
+            echo "| channel | production |"
+            echo "| APK URL | HTTP 200 |"
+            echo "| content-type | \`$ctype\` |"
+            echo "| size | $SIZE bytes |"
+            echo "| sha256 | \`$SHA\` |"
+            echo "| matches manifest | yes |"
+            echo ""
+            echo "Anonymous download URL:"
+            echo ""
+            echo "\`$APK_URL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
