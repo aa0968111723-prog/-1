@@ -62,6 +62,7 @@ class PetBehaviorControllerTest {
         sleepEnabled: Boolean = true,
         idleForMs: Long = 30_000L,
         lastWalkMs: Long = 0L,
+        lastStretchDay: Int? = null,
     ) = PetBehaviorScheduler.Context(
         nowMs = now,
         hourOfDay = hour,
@@ -77,7 +78,7 @@ class PetBehaviorControllerTest {
         sleepEnabled = sleepEnabled,
         lastUserInteractionMs = now - idleForMs,
         lastWalkMs = lastWalkMs,
-        lastStretchDayOfYear = PetBehaviorScheduler.dayTag(now), // already stretched today
+        lastStretchDayOfYear = lastStretchDay ?: PetBehaviorScheduler.dayTag(now), // default: already stretched today
         baseMood = PetState.IDLE,
     )
 
@@ -202,5 +203,68 @@ class PetBehaviorControllerTest {
         repeat(30) { now += 120_000L; c.tick() }
         assertEquals(0, fx.walks)
         assertEquals(0, fx.micro.size)
+    }
+
+    @Test
+    fun `turning sleep mode off wakes a sleeping pet on the next tick`() {
+        val (c, fx) = controller()
+        var context = ctx(hour = 2, idleForMs = 20 * 60_000L)
+        c.contextProvider = PetBehaviorController.ContextProvider { context }
+        c.tick()
+        assertTrue(c.sleeping)
+        // The user flips 睡眠模式 off while the pet is under the blanket. The
+        // scheduler now proposes ordinary life; the blanket must come off even
+        // though nothing ever "requested" a wake.
+        context = ctx(hour = 2, idleForMs = 20 * 60_000L, sleepEnabled = false)
+        c.tick()
+        assertFalse("sleep toggled off must wake the pet", c.sleeping)
+        assertEquals(1, fx.wakes)
+    }
+
+    @Test
+    fun `overnight idle still gets its morning stretch`() {
+        val (c, fx) = controller()
+        var context = ctx(hour = 2, idleForMs = 20 * 60_000L)
+        c.contextProvider = PetBehaviorController.ContextProvider { context }
+        c.tick()
+        assertTrue(c.sleeping)
+        // 8am after a whole untouched night: idleMs is huge, which used to let
+        // SLEEP outrank the once-a-day stretch forever (§十五).
+        now += 6 * 60 * 60_000L
+        context = ctx(hour = 8, idleForMs = 9 * 60 * 60_000L, lastStretchDay = -1)
+        c.tick()
+        assertFalse("morning stretch must wake the pet", c.sleeping)
+        assertEquals(1, fx.stretches)
+    }
+
+    @Test
+    fun `screen-on never greets a sleeping pet`() {
+        // A random source that always rolls 0 would greet on every chance.
+        val eager = object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+        }
+        val (c, fx) = controller(random = eager)
+        c.contextProvider = PetBehaviorController.ContextProvider { ctx(hour = 2, idleForMs = 20 * 60_000L) }
+        c.tick()
+        assertTrue(c.sleeping)
+        now += 60 * 60_000L
+        c.onScreenOn(greetingsEnabled = true, powerSave = false)
+        assertEquals("no waving from under the blanket", 0, fx.greetings)
+        // Same roll while awake does greet — proving the guard, not the dice.
+        c.onUserInteraction()
+        now += 60 * 60_000L
+        c.onScreenOn(greetingsEnabled = true, powerSave = false)
+        assertEquals(1, fx.greetings)
+    }
+
+    @Test
+    fun `collapsed pet keeps exactly one heartbeat pending`() {
+        val (c, fx) = controller()
+        c.contextProvider = PetBehaviorController.ContextProvider { ctx(collapsed = true) }
+        repeat(10) { now += PetBehaviorScheduler.RECHECK_MS; c.tick() }
+        // Life pauses but the loop never dies: one reschedule per tick, so the
+        // pet resumes by itself after the user expands it again.
+        assertEquals(10, fx.scheduled.size)
+        assertTrue(fx.scheduled.all { it == PetBehaviorScheduler.RECHECK_MS })
     }
 }

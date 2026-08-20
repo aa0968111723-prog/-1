@@ -109,10 +109,11 @@ body {
 .pet-sprite--animated .pet-sprout { animation: pet-sway 4.8s ease-in-out infinite; transform-origin: 54px 27px; }
 .pet-sprite--animated .pet-eyelids { animation: pet-blink 5.2s step-end infinite; transform-origin: 54px 49px; transform: scaleY(0); }
 .pet-sprite--animated .pet-wallet { animation: pet-wallet 3.6s ease-in-out infinite; transform-origin: 54px 82px; }
-.pet-sprite--wave .pet-wing--left { animation: pet-wave 1.1s ease-in-out infinite; transform-origin: 24px 56px; }
-.pet-sprite--celebrate { animation: pet-hop 0.9s ease-in-out infinite; }
+.pet-sprite--wave .pet-wing--left { animation: pet-wave 1.1s ease-in-out 2; transform-origin: 24px 56px; }
+.pet-sprite--celebrate { animation: pet-hop 0.9s ease-in-out 3; }
 .pet-sprite--surprised { animation: pet-pop 0.35s ease-out 1; }
-.pet-zzz { animation: pet-zzz 2.8s ease-in-out infinite; }
+.pet-zzz { animation: none; }
+.pet-sprite--dreaming .pet-zzz { animation: pet-zzz 2.8s ease-in-out infinite; }
 
 @keyframes pet-breathe { 0%,100% { transform: scale(1,1); } 50% { transform: scale(1.025,0.985); } }
 @keyframes pet-sway { 0%,100% { transform: rotate(-4deg); } 50% { transform: rotate(5deg); } }
@@ -130,7 +131,7 @@ body {
   .pet-sprite--animated .pet-wallet,
   .pet-sprite--wave .pet-wing--left,
   .pet-sprite--celebrate,
-  .pet-zzz { animation: none; }
+  .pet-sprite--dreaming .pet-zzz { animation: none; }
 }
 
 /* --- soft sheet/modal entrances (the animate-in classes used in App.tsx) --- */

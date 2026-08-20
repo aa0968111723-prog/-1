@@ -79,15 +79,18 @@ class PetBehaviorScheduler(
         val night = ctx.hourOfDay >= NIGHT_START_HOUR || ctx.hourOfDay < NIGHT_END_HOUR
         val idleMs = ctx.nowMs - ctx.lastUserInteractionMs
 
-        // Night or a long stretch of no interaction → sleep (spec §14/§15),
-        // unless the user turned sleep mode off.
-        if (ctx.sleepEnabled && (night || idleMs >= SLEEP_AFTER_IDLE_MS)) {
-            return Decision(Behavior.SLEEP, between(4_000L, 9_000L))
-        }
-
         // Morning stretch, once per day, only when actually morning (§15).
+        // Checked BEFORE sleep: after a whole night of no interaction idleMs
+        // is huge, and sleep would otherwise win every morning forever.
         if (ctx.hourOfDay in MORNING_HOURS && ctx.lastStretchDayOfYear != dayOfYearTag(ctx)) {
             return Decision(Behavior.STRETCH, between(2_000L, 6_000L))
+        }
+
+        // Night or a long stretch of no interaction → sleep (spec §14/§15),
+        // unless the user turned sleep mode off. (After the morning stretch
+        // the pet is allowed to doze back off if the user stays away.)
+        if (ctx.sleepEnabled && (night || idleMs >= SLEEP_AFTER_IDLE_MS)) {
+            return Decision(Behavior.SLEEP, between(4_000L, 9_000L))
         }
 
         // Quiet: blinks only, spaced far apart (§9).

@@ -6,6 +6,7 @@ import { getLocalDateKey } from '../lib/datetime';
 import { labelForCategoryId, categoryIdForStored, emojiForCategory } from '../lib/categoryCatalog';
 import { cn } from '../lib/utils';
 import PetSprite, { PetSpriteMood } from './pet/PetSprite';
+import { loadPetSettings } from '../lib/petSettings';
 
 interface HomeScreenProps {
   transactions: Transaction[];
@@ -59,6 +60,8 @@ export default function HomeScreen({
 
   const hour = new Date().getHours();
   const heroMood: PetSpriteMood = hour >= 23 || hour < 7 ? 'sleep' : todayCount > 0 ? 'happy' : 'idle';
+  // §四十八：使用者選「簡化動畫」時，首頁大小財也安靜下來。
+  const heroAnimated = loadPetSettings().animation === 'full';
 
   return (
     <div className="space-y-4">
@@ -82,7 +85,7 @@ export default function HomeScreen({
             aria-label={`打開${petName}互動頁`}
             className="shrink-0 active:scale-95 transition-transform"
           >
-            <PetSprite mood={heroMood} size={112} />
+            <PetSprite mood={heroMood} size={112} animated={heroAnimated} />
           </button>
         </div>
 

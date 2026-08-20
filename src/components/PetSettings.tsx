@@ -116,6 +116,9 @@ function SwitchRow({
 /** 狀態預覽（spec §二十七）：五種姿態，點一下播放。 */
 function PetStatePreview() {
   const [mood, setMood] = useState<PetSpriteMood>('idle');
+  // Bumping the key remounts the sprite, so tapping the same pose again
+  // replays its (bounded) animation — 點一下播放，一次就好 (spec §二十七).
+  const [playCount, setPlayCount] = useState(0);
   const states: Array<{ mood: PetSpriteMood; label: string }> = [
     { mood: 'idle', label: '待機' },
     { mood: 'wave', label: '打招呼' },
@@ -127,7 +130,7 @@ function PetStatePreview() {
     <div className="py-3 space-y-3">
       <div className="flex justify-center">
         <div className="w-32 h-32 rounded-[28px] bg-gradient-to-b from-[#FFF3D6] to-[#FFE9A8]/50 border border-white flex items-center justify-center">
-          <PetSprite mood={mood} size={104} />
+          <PetSprite key={`${mood}-${playCount}`} mood={mood} size={104} />
         </div>
       </div>
       <div className="flex flex-wrap justify-center gap-2">
@@ -135,7 +138,7 @@ function PetStatePreview() {
           <button
             key={s.mood}
             type="button"
-            onClick={() => setMood(s.mood)}
+            onClick={() => { setMood(s.mood); setPlayCount(c => c + 1); }}
             className={cn(
               'px-3 py-1.5 text-xs font-bold rounded-xl border transition-all min-h-[36px]',
               mood === s.mood
@@ -162,6 +165,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function PetSettings({ settings, onChange }: PetSettingsProps) {
   const native = isNativePetAvailable();
+  // The 互動 switch remembers the advanced timing (5s/15s), so toggling it
+  // off and on never silently rewrites a deliberate 5-second choice.
+  const lastAutoCollapse = useRef<PetAutoCollapse>(
+    settings.autoCollapse !== 'off' ? settings.autoCollapse : '15s',
+  );
+  if (settings.autoCollapse !== 'off') lastAutoCollapse.current = settings.autoCollapse;
   const [status, setStatus] = useState<PetStatus | null>(null);
   const [debugInfo, setDebugInfo] = useState<PetDebugInfo | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -407,7 +416,7 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
           label="自動收邊"
           hint="沒事時靠到螢幕邊休息"
           checked={settings.autoCollapse !== 'off'}
-          onChange={v => update({ autoCollapse: v ? '15s' : 'off' })}
+          onChange={v => update({ autoCollapse: v ? lastAutoCollapse.current : 'off' })}
         />
         <SwitchRow
           label="打招呼"
