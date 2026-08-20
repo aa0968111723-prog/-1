@@ -118,3 +118,44 @@ describe('parseChineseNumber', () => {
     expect(parseChineseNumber('午餐')).toBeNull();
   });
 });
+
+describe('a date that cannot exist is not guessed at', () => {
+  // 「2/30 晚餐 200」 used to be filed on 2026-03-02 — a different month —
+  // with confidence 'high', which submits without asking. The module's own
+  // rule is that it does not guess: an unrecognised category shows
+  // 「分類：請選擇」 rather than a made-up one.
+  const cases = ['2/30 晚餐 200', '4/31 晚餐 200', '6/31 晚餐 200'];
+
+  for (const input of cases) {
+    it(`falls back to today for "${input}" instead of rolling into the next month`, () => {
+      const r = parseQuickEntry(input, NOW);
+      expect(r.date).toBe('2026-08-19');
+      expect(r.amount).toBe(200);
+    });
+
+    it(`does not auto-submit "${input}"`, () => {
+      // 'high' is the level that saves without confirmation.
+      expect(parseQuickEntry(input, NOW).confidence).not.toBe('high');
+    });
+  }
+
+  it('treats 2/29 as impossible in a common year', () => {
+    const r = parseQuickEntry('2/29 晚餐 200', NOW);
+    expect(r.date).toBe('2026-08-19');
+    expect(r.confidence).not.toBe('high');
+  });
+
+  it('accepts 2/29 in a leap year', () => {
+    const leap = new Date(2028, 7, 20, 12, 0, 0);
+    const r = parseQuickEntry('2/29 晚餐 200', leap);
+    expect(r.date).toBe('2028-02-29');
+    expect(r.confidence).toBe('high');
+  });
+
+  it('leaves a real date alone', () => {
+    // A day that is not today, so the assertion actually proves the parse.
+    const r = parseQuickEntry('8/15 晚餐 200', NOW);
+    expect(r.date).toBe('2026-08-15');
+    expect(r.confidence).toBe('high');
+  });
+});

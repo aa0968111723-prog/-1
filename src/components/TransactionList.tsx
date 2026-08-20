@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Transaction, Debt, Goal, PAYMENT_METHODS } from '../types';
+import { Transaction, Debt, Goal } from '../types';
+import { paymentMethodLabel } from '../lib/paymentMethods';
 import { formatCurrency, formatDate } from '../lib/formatters';
 import { getLocalDateKey } from '../lib/datetime';
 import { Coffee, ShoppingBag, Home, Zap, HeartPulse, MoreHorizontal, Briefcase, Gift, ArrowDownRight, Bus, BookOpen, Gamepad2, TrendingUp, Search, Filter, Landmark, Plus, Link as LinkIcon, Wallet } from 'lucide-react';
@@ -271,7 +272,9 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
                           )}
                           {tx.paymentMethod && (
                             <span className="flex items-center gap-0.5 text-[10px] font-bold bg-[#EAE4DB]/50 text-[#82786D] px-1.5 py-0.5 rounded-md border border-black/5">
-                              <Wallet size={10} /> {PAYMENT_METHODS[tx.paymentMethod]}
+                              {/* Registry, not the legacy four-key map: a row paid with 悠遊卡 or
+                                  LINE Pay looked up as undefined and rendered a blank chip. */}
+                              <Wallet size={10} /> {paymentMethodLabel(tx.paymentMethod)}
                             </span>
                           )}
                         </div>

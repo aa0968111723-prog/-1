@@ -89,8 +89,18 @@ function matchKeyword(map: Record<string, string[]>, text: string): string | nul
   return best?.id ?? null;
 }
 
+interface ExtractedDate {
+  date: string;
+  rest: string;
+  /**
+   * The user clearly typed a date and it cannot exist (2/30, 4/31, 2/29 in a
+   * common year). We refuse to guess which one they meant.
+   */
+  impossible?: boolean;
+}
+
 /** Strips a relative-day word, returning the resolved date key and the remaining text. */
-function extractDate(text: string, now: Date): { date: string; rest: string } {
+function extractDate(text: string, now: Date): ExtractedDate {
   for (const [word, offset] of Object.entries(RELATIVE_DAY_KEYWORDS)) {
     if (text.includes(word)) {
       return {
@@ -105,6 +115,24 @@ function extractDate(text: string, now: Date): { date: string; rest: string } {
     const month = Number(md[1]);
     const day = Number(md[2]);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      /*
+       * The day has to exist in that month.
+       *
+       * `day <= 31` alone let `new Date(2026, 1, 30)` roll over to March 2, so
+       * 「2/30 晚餐 200」 was filed on 2026-03-02 — a different month — with
+       * confidence 'high', which submits without asking. 2/29 in a common year
+       * did the same. This module's rule is that it does not guess when it
+       * cannot tell (an unrecognised category shows 「分類：請選擇」 rather
+       * than a guess); an impossible date deserves the same treatment.
+       *
+       * The token is still consumed so it cannot be re-read as an amount, and
+       * the caller drops confidence so the user is asked instead of the entry
+       * being saved on a date they did not choose.
+       */
+      const lastDay = new Date(now.getFullYear(), month, 0).getDate();
+      if (day > lastDay) {
+        return { date: getLocalDateKey(now), rest: text.replace(md[0], ' '), impossible: true };
+      }
       const d = new Date(now.getFullYear(), month - 1, day);
       return { date: getLocalDateKey(d), rest: text.replace(md[0], ' ') };
     }
@@ -126,7 +154,7 @@ export function parseQuickEntry(input: string, now: Date = new Date()): ParsedQu
     ? trimmed.replace(new RegExp(escapeRegExp(storeMatch), 'i'), ' ')
     : trimmed;
 
-  const { date, rest } = extractDate(masked, now);
+  const { date, rest, impossible: impossibleDate } = extractDate(masked, now);
   const text = rest;
 
   let amount: number | null = null;
@@ -178,8 +206,12 @@ export function parseQuickEntry(input: string, now: Date = new Date()): ParsedQu
       confidence: 'medium',
     };
   }
-  const confidence: ParsedQuickEntry['confidence'] =
+  const parsed: ParsedQuickEntry['confidence'] =
     amount !== null && categoryId ? 'high' : amount !== null || categoryId ? 'medium' : 'low';
+  // An impossible date never auto-submits: 'high' is the level that saves
+  // without confirmation, and the date it would save is not the user's.
+  const confidence: ParsedQuickEntry['confidence'] =
+    impossibleDate && parsed === 'high' ? 'medium' : parsed;
 
   return {
     type,

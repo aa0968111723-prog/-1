@@ -250,3 +250,25 @@ describe('toMinor rounds half away from zero in both directions', () => {
     expect(addAmounts(-0.005, 0.005)).toBe(0);
   });
 });
+
+describe('parseAmountInput rejects what rounds away to nothing', () => {
+  it('returns null for a sub-cent amount instead of zero', () => {
+    // The > 0 guard ran before rounding, so these passed it and came back as
+    // 0. Three of the five call sites only check for null, so a NT$0
+    // transaction was recordable.
+    expect(parseAmountInput('0.001')).toBeNull();
+    expect(parseAmountInput('0.004')).toBeNull();
+  });
+
+  it('still accepts the smallest amount that survives rounding', () => {
+    expect(parseAmountInput('0.005')).toBe(0.01);
+    expect(parseAmountInput('0.01')).toBe(0.01);
+  });
+
+  it('keeps the ordinary cases working', () => {
+    expect(parseAmountInput('1,234')).toBe(1234);
+    expect(parseAmountInput('NT$250')).toBe(250);
+    expect(parseAmountInput('  ')).toBeNull();
+    expect(parseAmountInput('-5')).toBeNull();
+  });
+});
