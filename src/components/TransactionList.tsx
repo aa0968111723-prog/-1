@@ -33,6 +33,8 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 
 export default function TransactionList({ transactions, onDelete, onOpenAdd, debts = [], goals = [] }: TransactionListProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  // 手機上只有「全部／收入／支出」是常用的；其餘篩選展開才出現。
+  const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -147,9 +149,9 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
 
   return (
     <div className="glass overflow-hidden shadow-sm">
-      <div className="p-6 border-b border-black/5 space-y-4">
+      <div className="p-4 sm:p-6 border-b border-black/5 space-y-3 sm:space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h3 className="text-lg font-bold text-[#5C5248] shrink-0">詳細交易紀錄</h3>
+          <h3 className="hidden sm:block text-lg font-bold text-[#5C5248] shrink-0">詳細交易紀錄</h3>
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="relative flex-1 sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#82786D]/60" size={16} />
@@ -165,8 +167,10 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
           </div>
         </div>
         
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-           <div className="flex items-center gap-2 text-[#82786D]/70 text-sm">
+        {/* 手機上只留「全部／收入／支出」；月份、標籤、CSV 收在「更多篩選」裡。
+            桌機維持一整排。 */}
+        <div className="flex flex-wrap items-center gap-3 sm:pt-2">
+           <div className="hidden sm:flex items-center gap-2 text-[#82786D]/70 text-sm">
              <Filter size={14} /> 篩選:
            </div>
            <div className="flex bg-[#EAE4DB]/50 p-1 rounded-lg border border-black/5 shadow-inner">
@@ -183,7 +187,18 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
                 className={cn("px-3 py-1 rounded-md text-xs font-bold transition-all", filterType === 'expense' ? "bg-[#CD7A70]/20 text-[#CD7A70]" : "text-[#82786D] hover:text-[#CD7A70]")}
               >支出</button>
            </div>
-           
+
+           <button
+             type="button"
+             onClick={() => setShowFilters(v => !v)}
+             aria-expanded={showFilters}
+             className="sm:hidden flex items-center gap-1.5 text-xs font-bold text-[#82786D] px-3 py-1.5 rounded-lg border border-black/5 bg-white/50"
+           >
+             <Filter size={14} /> 更多篩選
+           </button>
+        </div>
+
+        <div className={cn('flex flex-wrap items-center gap-3', !showFilters && 'hidden sm:flex')}>
            <select 
              value={filterMonth}
              onChange={(e) => setFilterMonth(e.target.value)}
