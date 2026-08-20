@@ -108,12 +108,17 @@ object PetMovementController {
         followFactor: Float = 0.35f,
         offsetDp: Int = 40,
     ): PetPositionManager.PixelPosition {
-        val offsetPx = (offsetDp * density).toInt()
-        // Trail on the side the pet is already on, so it swings naturally.
-        val targetX = if (petXPx + petSizePx / 2 <= fingerXPx) fingerXPx - petSizePx - offsetPx / 2 else fingerXPx + offsetPx / 2
-        val targetY = fingerYPx - petSizePx / 2
-        val nextX = petXPx + ((targetX - petXPx) * followFactor).toInt()
-        val nextY = petYPx + ((targetY - petYPx) * followFactor).toInt()
+        val trailPx = (offsetDp * density).toInt()
+        val cx = petXPx + petSizePx / 2
+        val cy = petYPx + petSizePx / 2
+        // The pet keeps whatever gap it already has, capped at the trailing
+        // distance: grabbing it never teleports it sideways, small jiggles do
+        // nothing, and a real drag settles into a steady offsetDp lag on the
+        // side the pet naturally ended up on.
+        val targetCx = fingerXPx + (cx - fingerXPx).coerceIn(-trailPx, trailPx)
+        val targetCy = fingerYPx + (cy - fingerYPx).coerceIn(-trailPx, trailPx)
+        val nextX = petXPx + ((targetCx - petSizePx / 2 - petXPx) * followFactor).toInt()
+        val nextY = petYPx + ((targetCy - petSizePx / 2 - petYPx) * followFactor).toInt()
         return PetPositionManager.PixelPosition(
             safe.clampX(nextX, petSizePx),
             safe.clampY(nextY, petSizePx),

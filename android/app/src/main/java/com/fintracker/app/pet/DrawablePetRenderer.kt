@@ -36,6 +36,32 @@ class DrawablePetRenderer : PetRenderer {
     private var sleeping = false
     private var facingLeft = false
 
+    // Pending view.postDelayed restores, kept so release() can unwind them
+    // instead of letting them poke at a detached view tree.
+    private var faceRestore: Runnable? = null
+    private var propHide: Runnable? = null
+    /** Bumped whenever something interrupts a walk bob; stale chain links stop. */
+    private var bobGeneration = 0
+
+    /** Horizontal sign for the current facing; scale animations multiply by this. */
+    private fun dir(): Float = if (facingLeft) -1f else 1f
+
+    private fun postFaceRestore(delayMs: Long) {
+        val f = face ?: return
+        faceRestore?.let { f.removeCallbacks(it) }
+        val r = Runnable { applyMood() }
+        faceRestore = r
+        f.postDelayed(r, delayMs)
+    }
+
+    private fun postPropHide(delayMs: Long) {
+        val p = prop ?: return
+        propHide?.let { p.removeCallbacks(it) }
+        val r = Runnable { if (!sleeping) p.visibility = View.GONE }
+        propHide = r
+        p.postDelayed(r, delayMs)
+    }
+
     override fun createView(context: Context): View {
         val container = FrameLayout(context)
         fun layer(): ImageView = ImageView(context).apply {
@@ -110,7 +136,7 @@ class DrawablePetRenderer : PetRenderer {
             }
             1 -> { // blink: swap the face for a moment, then restore
                 f.setImageResource(R.drawable.ic_pet_face_blink)
-                f.postDelayed({ applyMood() }, 130)
+                postFaceRestore(130)
             }
             2 -> { // sprout/wing flutter — small life without moving anywhere
                 wiggleWings()
@@ -131,7 +157,7 @@ class DrawablePetRenderer : PetRenderer {
 
     override fun setFacing(left: Boolean) {
         facingLeft = left
-        root?.scaleX = if (left) -1f else 1f
+        root?.scaleX = dir()
     }
 
     override fun playWalkBob(hops: Int, totalDurationMs: Long) {
@@ -139,8 +165,9 @@ class DrawablePetRenderer : PetRenderer {
         val v = root ?: return
         val per = (totalDurationMs / (hops * 2).coerceAtLeast(1)).coerceAtLeast(60L)
         v.animate().cancel()
+        val gen = ++bobGeneration
         fun bob(remaining: Int) {
-            if (remaining <= 0 || root == null) {
+            if (remaining <= 0 || root == null || gen != bobGeneration) {
                 v.animate().translationY(0f).setDuration(per).start()
                 return
             }
@@ -181,7 +208,7 @@ class DrawablePetRenderer : PetRenderer {
                 }.start()
             }.start()
         } else {
-            f.postDelayed({ applyMood() }, 900)
+            postFaceRestore(900)
         }
     }
 
@@ -189,19 +216,22 @@ class DrawablePetRenderer : PetRenderer {
         if (animationLevel != "full") return
         val v = root ?: return
         v.animate().cancel()
-        v.animate().scaleY(1.12f).scaleX(0.94f).setDuration(420).withEndAction {
-            v.animate().scaleY(1f).scaleX(1f).setDuration(360).start()
+        v.animate().scaleY(1.12f).scaleX(dir() * 0.94f).setDuration(420).withEndAction {
+            v.animate().scaleY(1f).scaleX(dir()).setDuration(360).start()
         }.start()
     }
 
     override fun playSurprised() {
         val f = face ?: return
+        bobGeneration++ // being picked up ends any stroll bob chain
         f.setImageResource(R.drawable.ic_pet_face_surprised)
         if (animationLevel == "full") {
             val v = root ?: return
             v.animate().cancel()
-            v.animate().scaleX(1.08f).scaleY(1.08f).setDuration(90).withEndAction {
-                v.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
+            // translationY(0) also settles any walk-bob frozen mid-hop by the
+            // cancel above, so being picked up never leaves the pet floating.
+            v.animate().scaleX(dir() * 1.08f).scaleY(1.08f).translationY(0f).setDuration(90).withEndAction {
+                v.animate().scaleX(dir()).scaleY(1f).setDuration(140).start()
             }.start()
         }
     }
@@ -228,11 +258,12 @@ class DrawablePetRenderer : PetRenderer {
         p.setImageResource(R.drawable.ic_pet_prop_party_hat)
         p.visibility = View.VISIBLE
         playSuccess()
-        p.postDelayed({ if (!sleeping) p.visibility = View.GONE }, 2_400L)
+        postPropHide(2_400L)
     }
 
     override fun setSleeping(sleeping: Boolean) {
         this.sleeping = sleeping
+        if (sleeping) bobGeneration++
         val p = prop ?: return
         val z = zzz ?: return
         if (sleeping) {
@@ -262,7 +293,7 @@ class DrawablePetRenderer : PetRenderer {
         if (res == 0) return
         p.setImageResource(res)
         p.visibility = View.VISIBLE
-        p.postDelayed({ if (!sleeping) p.visibility = View.GONE }, durationMs)
+        postPropHide(durationMs)
     }
 
     override fun release() {
@@ -270,8 +301,11 @@ class DrawablePetRenderer : PetRenderer {
         body?.animate()?.cancel()
         face?.animate()?.cancel()
         wings?.animate()?.cancel()
-        // A pending blink-restore may still fire; applyMood() no-ops once the
-        // view references are gone, so there is nothing else to unwind.
+        faceRestore?.let { face?.removeCallbacks(it) }
+        propHide?.let { prop?.removeCallbacks(it) }
+        faceRestore = null
+        propHide = null
+        bobGeneration++
         root = null
         wings = null
         body = null
@@ -298,14 +332,11 @@ class DrawablePetRenderer : PetRenderer {
             "hat" -> R.drawable.ic_pet_accessory_hat
             "scarf" -> R.drawable.ic_pet_accessory_scarf
             "leaf" -> R.drawable.ic_pet_accessory_leaf
-            else -> 0
+            // 沒有戰利品時帶著小錢包 —— 和 web 版 PetSprite 同一隻角色。
+            else -> R.drawable.ic_pet_prop_wallet
         }
-        if (res == 0) {
-            a.visibility = View.GONE
-        } else {
-            a.setImageResource(res)
-            a.visibility = View.VISIBLE
-        }
+        a.setImageResource(res)
+        a.visibility = View.VISIBLE
     }
 
     companion object {

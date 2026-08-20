@@ -114,6 +114,7 @@ export function PetSprite({ mood = 'idle', size = 96, animated = true, className
       className={[
         'pet-sprite',
         lively ? 'pet-sprite--animated' : '',
+        animated && mood === 'sleep' ? 'pet-sprite--dreaming' : '',
         mood === 'wave' ? 'pet-sprite--wave' : '',
         mood === 'celebrate' ? 'pet-sprite--celebrate' : '',
         mood === 'surprised' ? 'pet-sprite--surprised' : '',

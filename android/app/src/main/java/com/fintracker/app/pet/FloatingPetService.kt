@@ -309,7 +309,13 @@ class FloatingPetService : Service() {
         snoozed = false
         handler.removeCallbacks(snoozeResumeRunnable)
         settings = prefs.settings()
-        if (petView == null) addPetWindow()
+        if (petView == null) {
+            addPetWindow()
+        } else {
+            // Redundant START with the window alive: make sure the behaviour
+            // loop is armed (scheduleNextTick no-ops while the screen is off).
+            behavior.start()
+        }
         applyPetState()
         running = true
     }
@@ -337,6 +343,10 @@ class FloatingPetService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // Screen rotated or resized: re-derive pixels from the normalized position.
+        // Kill any animator still interpolating pre-rotation pixels first, or
+        // it keeps writing coordinates for a screen that no longer exists.
+        snapAnimator?.cancel()
+        walkAnimator?.cancel()
         val params = petParams ?: return
         val view = petView ?: return
         val (w, h) = screenSize()
@@ -470,6 +480,8 @@ class FloatingPetService : Service() {
             noteInteraction()
             behavior.onUserInteraction()
             petView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            // 被盯著看，有點害羞（SHY 純表情，選單關閉時自動回 mood）。
+            if (stateMachine.request(PetState.SHY, 8_000L)) renderer.setMood(PetState.SHY)
             showMenu()
         }
 
@@ -487,7 +499,10 @@ class FloatingPetService : Service() {
             dismissBubble()
             snapAnimator?.cancel()
             walkAnimator?.cancel()
-            stateMachine.request(PetState.DRAGGING, 120_000L)
+            stateMachine.request(
+                if (settings.followFinger) PetState.FOLLOW_FINGER else PetState.DRAGGING,
+                120_000L,
+            )
             // 被拿起來：驚訝表情 + 稍微放大 + 輕觸覺（spec §十一/§四十六）
             renderer.playSurprised()
             petView?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -501,20 +516,29 @@ class FloatingPetService : Service() {
             val top = topInset()
             val bottom = bottomInset()
             if (settings.followFinger) {
-                // 跟著手指（spec §十）：累積手指目標，每個事件只追一部分，
-                // 形成柔軟的落後追趕感；touch move 頻率高，殘差很快收斂，
-                // 不需要任何額外 timer。
+                // 跟著手指（spec §十）：dragTarget 累積出「黏在手指上會在哪」，
+                // followStep 讓小財瞄準手指側後方一小段距離、每個事件只追一部分
+                // —— 柔軟的落後追趕感；touch move 頻率高，不需要任何額外 timer。
                 dragTargetX += dx
                 dragTargetY += dy
-                params.x = params.x + ((dragTargetX - params.x) * FOLLOW_CATCH_UP).toInt()
-                params.y = params.y + ((dragTargetY - params.y) * FOLLOW_CATCH_UP).toInt()
+                val next = PetMovementController.followStep(
+                    petXPx = params.x,
+                    petYPx = params.y,
+                    fingerXPx = dragTargetX + petSizePx / 2,
+                    fingerYPx = dragTargetY + petSizePx / 2,
+                    petSizePx = petSizePx,
+                    density = resources.displayMetrics.density,
+                    safe = currentSafeRect(),
+                )
+                params.x = next.x
+                params.y = next.y
             } else {
                 params.x += dx
                 params.y += dy
+                params.x = max(-petSizePx / 3, min(w - petSizePx + petSizePx / 3, params.x))
+                // 不停進 status bar / 手勢區
+                params.y = max(top, min(h - petSizePx - bottom, params.y))
             }
-            params.x = max(-petSizePx / 3, min(w - petSizePx + petSizePx / 3, params.x))
-            // 不停進 status bar / 手勢區
-            params.y = max(top, min(h - petSizePx - bottom, params.y))
             renderer.wiggleWings()
             safeUpdate(view, params)
         }
@@ -522,6 +546,7 @@ class FloatingPetService : Service() {
         override fun onDragEnd() {
             dragging = false
             stateMachine.clearTransient(PetState.DRAGGING)
+            stateMachine.clearTransient(PetState.FOLLOW_FINGER)
             // 放開：小跳一下 → 吸邊 + 輕觸覺（spec §十一/§四十六）
             petView?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(150)?.start()
             renderer.playSuccessHop()
@@ -572,6 +597,9 @@ class FloatingPetService : Service() {
         // Never peek away mid-interaction: not while dragging, not while the
         // quick add sheet or long-press menu is open.
         if (collapsed || dragging || quickAddVisible || menuView != null) return
+        // A stroll in flight would fight the collapse animator over params.x;
+        // stop it cleanly first (the cancel path touches nothing visual).
+        walkAnimator?.cancel()
         val params = petParams ?: return
         val view = petView ?: return
         if (!stateMachine.request(PetState.EDGE_PEEK, 60_000L)) return
@@ -593,6 +621,9 @@ class FloatingPetService : Service() {
         view.alpha = settings.alpha()
         animateX(view, params, PetPositionManager.snapTargetX(edge, w, petSizePx))
         scheduleAutoCollapse()
+        // Coming back out re-arms life promptly instead of waiting out the
+        // long NONE recheck the collapsed state had scheduled.
+        behavior.start()
     }
 
     private fun animateX(view: View, params: WindowManager.LayoutParams, targetX: Int) {
@@ -759,8 +790,14 @@ class FloatingPetService : Service() {
     }
 
     private fun dismissMenu() {
+        val hadMenu = menuView != null
         menuView?.let { runCatching { windowManager.removeView(it) } }
         menuView = null
+        if (hadMenu) {
+            // The staring is over; drop the shy face if it was up.
+            stateMachine.clearTransient(PetState.SHY)
+            renderer.setMood(stateMachine.current())
+        }
     }
 
     // ---- bubble (its own overlay window so the pet never shifts) ----
@@ -920,6 +957,9 @@ class FloatingPetService : Service() {
         } else {
             snapToCurrentEdgeSetting()
             scheduleAutoCollapse()
+            // New toggles (sleep / autonomy / activity level) must take effect
+            // now, not at the whim of the previous tick's delay.
+            if (petView != null) behavior.start()
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIFICATION_ID, buildNotification(snoozed))
@@ -965,7 +1005,15 @@ class FloatingPetService : Service() {
                 safeUpdate(view, params)
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    // Whatever interrupted the stroll owns the pet now: just
+                    // release the walking flag and touch nothing visual.
+                    cancelled = true
+                    behavior.onWalkFinished()
+                }
                 override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (cancelled) return
                     // Persist where the stroll ended so rotation keeps the spot.
                     val (w, h) = screenSize()
                     val normalized = PetPositionManager.normalize(
@@ -992,8 +1040,25 @@ class FloatingPetService : Service() {
             left = 0,
             top = topInset(),
             right = w,
-            bottom = h - bottomInset(),
+            bottom = h - max(bottomInset(), imeInset()),
         )
+    }
+
+    /**
+     * Height the keyboard currently covers, or 0. Overlay windows only get IME
+     * insets dispatched on API 30+; earlier platforms report 0 here, which
+     * degrades to the pre-keyboard-aware behaviour rather than crashing.
+     */
+    private fun imeInset(): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return 0
+        // Same source as topInset/bottomInset — the overlay's own
+        // rootWindowInsets often reports 0 for the IME because the overlay is
+        // never the IME target. Visibility-aware on purpose: a hidden
+        // keyboard must not shrink the walkable world.
+        return runCatching {
+            windowManager.currentWindowMetrics.windowInsets
+                .getInsets(WindowInsets.Type.ime()).bottom
+        }.getOrDefault(0)
     }
 
     /** Simplified animations when the user chose so OR the system disabled animator scale (reduced motion). */
@@ -1146,7 +1211,6 @@ class FloatingPetService : Service() {
 
     companion object {
         /** Follow-finger catch-up per touch event — the soft chase feel (§十). */
-        private const val FOLLOW_CATCH_UP = 0.55f
 
         const val ACTION_START = "com.fintracker.app.pet.START"
         const val ACTION_STOP = "com.fintracker.app.pet.STOP"

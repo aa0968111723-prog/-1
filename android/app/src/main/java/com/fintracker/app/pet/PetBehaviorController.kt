@@ -91,8 +91,20 @@ class PetBehaviorController(
         }
 
         val decision = scheduler.next(ctx)
+        // The scheduler is the single sleep authority: the moment it elects a
+        // REAL behaviour instead of SLEEP — sleep mode toggled off, quiet or
+        // power-save now yielding blinks, morning rules — a sleeping pet must
+        // wake up; a BLINK decision must never leave the blanket on forever.
+        // NONE is different: it means "hold still" (reduce-motion, collapsed,
+        // menu open...), and holding still while asleep is just... sleeping.
+        val wokeThisTick = sleeping &&
+            decision.behavior != PetBehaviorScheduler.Behavior.SLEEP &&
+            decision.behavior != PetBehaviorScheduler.Behavior.NONE
+        // A morning stretch IS the wake pose — holding WAKE first would
+        // outrank the lower-priority STRETCH and swallow it.
+        if (wokeThisTick) wake(showWakePose = decision.behavior != PetBehaviorScheduler.Behavior.STRETCH)
         when (decision.behavior) {
-            PetBehaviorScheduler.Behavior.NONE -> if (sleeping && (!ctx.sleepEnabled || !shouldStayAsleep(ctx))) wake()
+            PetBehaviorScheduler.Behavior.NONE -> {}
 
             PetBehaviorScheduler.Behavior.SLEEP -> if (!sleeping) {
                 if (stateMachine.request(PetState.DEEP_SLEEP, SLEEP_HOLD_MS)) {
@@ -102,7 +114,7 @@ class PetBehaviorController(
             }
 
             PetBehaviorScheduler.Behavior.STRETCH -> {
-                if (sleeping) wake()
+                // Waking straight into the morning stretch is the point (§15).
                 if (stateMachine.request(PetState.STRETCH, STRETCH_MS)) {
                     lastStretchDayTag = PetBehaviorScheduler.dayTag(ctx.nowMs)
                     fx.playStretch()
@@ -110,9 +122,8 @@ class PetBehaviorController(
             }
 
             PetBehaviorScheduler.Behavior.WALK -> {
-                if (sleeping) {
-                    wake()
-                } else if (stateMachine.request(PetState.WALK, WALK_HOLD_MS)) {
+                // Just-woken pets get a beat before strolling; walk next tick.
+                if (!wokeThisTick && stateMachine.request(PetState.WALK, WALK_HOLD_MS)) {
                     lastWalkMs = ctx.nowMs
                     walking = true
                     fx.showTransient(PetState.WALK, WALK_HOLD_MS)
@@ -123,9 +134,7 @@ class PetBehaviorController(
             PetBehaviorScheduler.Behavior.BLINK,
             PetBehaviorScheduler.Behavior.LOOK,
             PetBehaviorScheduler.Behavior.CURIOUS -> {
-                if (sleeping) {
-                    // Asleep pets don't blink; nothing to do until wake rules fire.
-                } else if (stateMachine.idleTickAllowed()) {
+                if (!wokeThisTick && stateMachine.idleTickAllowed()) {
                     fx.playMicroAnimation(decision.behavior)
                 }
             }
@@ -169,7 +178,9 @@ class PetBehaviorController(
     /** Screen back on — maybe greet (spec §十三). */
     fun onScreenOn(greetingsEnabled: Boolean, powerSave: Boolean) {
         val now = clock()
-        if (scheduler.shouldGreet(now, lastGreetMs, greetingsEnabled, powerSave)) {
+        // Never wave from under the blanket: a sleeping pet stays asleep on
+        // screen-on and the normal tick rules decide when it wakes.
+        if (!sleeping && scheduler.shouldGreet(now, lastGreetMs, greetingsEnabled, powerSave)) {
             if (stateMachine.request(PetState.GREET, GREET_MS)) {
                 lastGreetMs = now
                 effects?.playGreeting()
@@ -184,18 +195,11 @@ class PetBehaviorController(
         stateMachine.clearTransient(PetState.WALK)
     }
 
-    private fun wake() {
+    private fun wake(showWakePose: Boolean = true) {
         sleeping = false
         stateMachine.clearTransient(PetState.DEEP_SLEEP)
-        stateMachine.request(PetState.WAKE, WAKE_MS)
+        if (showWakePose) stateMachine.request(PetState.WAKE, WAKE_MS)
         effects?.exitSleep()
-    }
-
-    private fun shouldStayAsleep(ctx: PetBehaviorScheduler.Context): Boolean {
-        val night = ctx.hourOfDay >= PetBehaviorScheduler.NIGHT_START_HOUR ||
-            ctx.hourOfDay < PetBehaviorScheduler.NIGHT_END_HOUR
-        val idleMs = ctx.nowMs - ctx.lastUserInteractionMs
-        return night || idleMs >= PetBehaviorScheduler.SLEEP_AFTER_IDLE_MS
     }
 
     /** Context helpers the service uses when building the scheduler snapshot. */
@@ -203,7 +207,7 @@ class PetBehaviorController(
     fun lastStretchDayTag(): Int = lastStretchDayTag
 
     companion object {
-        const val FIRST_TICK_MS = 6_000L
+        const val FIRST_TICK_MS = 4_000L
         const val AFTER_INTERACTION_MS = 20_000L
         const val WALK_HOLD_MS = 4_000L
         const val STRETCH_MS = 1_800L
