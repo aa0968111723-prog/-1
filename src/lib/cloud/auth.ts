@@ -15,6 +15,19 @@
 
 import { getSupabase, isCloudConfigured } from './supabaseClient';
 
+/**
+ * The slice of the Supabase client this controller actually uses. Narrow on
+ * purpose: a fake in a test should not have to implement a database.
+ */
+export interface SupabaseLikeAuth {
+  auth: {
+    getSession(): Promise<{ data: { session: { user?: { id: string; email?: string | null } } | null } }>;
+    onAuthStateChange(
+      cb: (event: string, session: { user?: { id: string; email?: string | null } } | null) => void,
+    ): unknown;
+  };
+}
+
 export type AuthMode = 'guest' | 'signed-in';
 
 export interface AuthUser {
@@ -45,7 +58,16 @@ export class AuthController {
   };
   private listeners = new Set<AuthListener>();
 
-  constructor(private storage: Storage | undefined = globalThis.localStorage) {}
+  /**
+   * [supabaseFactory] is injectable for the same reason FinanceSyncEngine's
+   * client is: session restore decides whether a signed-in user sees their own
+   * ledger, and code that cannot be tested without a network does not get
+   * tested. init() had no test at all, which is how it ended up with no caller.
+   */
+  constructor(
+    private storage: Storage | undefined = globalThis.localStorage,
+    private supabaseFactory: () => SupabaseLikeAuth | null = getSupabase as unknown as () => SupabaseLikeAuth | null,
+  ) {}
 
   getState(): AuthState {
     return { ...this.state };
@@ -77,7 +99,7 @@ export class AuthController {
 
   /** Restore any stored session. Safe to call when cloud is not configured. */
   async init(): Promise<AuthState> {
-    const supabase = getSupabase();
+    const supabase = this.supabaseFactory();
     if (!supabase) {
       this.emit({ loading: false, cloudAvailable: false, mode: 'guest' });
       return this.getState();

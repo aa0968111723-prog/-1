@@ -36,3 +36,67 @@ describe('index.html translate guard', () => {
     expect(html).toMatch(/viewport-fit=cover/);
   });
 });
+
+/*
+ * Startup wiring that is easy to delete and expensive to miss.
+ *
+ * A module can export a perfectly correct init() that nothing calls; that is
+ * exactly how authController.init() sat unused while the account panel would
+ * have hung on its loading state. A static check is cheap and catches the
+ * regression that unit tests structurally cannot: unit tests exercise the
+ * function, not the fact that the app invokes it.
+ */
+/**
+ * Comments stripped before matching.
+ *
+ * The first version of this guard passed with the call deleted, because the
+ * explanatory comment directly above it still contained the words
+ * `authController.init()`. A gate that matches its own documentation is not a
+ * gate — verified by deleting the call and watching it go red.
+ */
+function codeOf(path: string): string {
+  return readFileSync(resolve(process.cwd(), path), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+const mainTsx = codeOf('src/main.tsx');
+
+describe('main.tsx startup wiring', () => {
+  it('restores the auth session on launch', () => {
+    expect(mainTsx).toMatch(/authController\s*\.\s*init\s*\(/);
+  });
+
+  it('warms the local store before mounting', () => {
+    expect(mainTsx).toMatch(/financeStore\s*[\s\S]{0,20}\.init\s*\(/);
+  });
+
+  it('still runs the storage migration before anything reads finance data', () => {
+    expect(mainTsx).toContain('runStorageMigration()');
+  });
+});
+
+/*
+ * Sync used to be constructed and driven inside AccountPanel, so it ran only
+ * while that settings screen was mounted — a screen that now sits behind the
+ * 小財 tab's 進階設定 in a lazy chunk. These assert the wiring stayed where it
+ * belongs.
+ */
+const appTsx = codeOf('src/App.tsx');
+const accountPanel = codeOf('src/components/AccountPanel.tsx');
+
+describe('sync is driven by the app, not by a settings panel', () => {
+  it('App subscribes to the sync engine and refreshes the ledger', () => {
+    expect(appTsx).toMatch(/financeSync\s*\.\s*subscribe\s*\(/);
+    expect(appTsx).toContain('syncFromRepository()');
+  });
+
+  it('App owns the sync triggers', () => {
+    expect(appTsx).toContain('visibilitychange');
+    expect(appTsx).toMatch(/financeSync\s*\.\s*sync\s*\(/);
+  });
+
+  it('AccountPanel no longer constructs its own engine', () => {
+    expect(accountPanel).not.toMatch(/new\s+FinanceSyncEngine/);
+  });
+});

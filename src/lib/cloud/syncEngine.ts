@@ -66,6 +66,15 @@ export interface SyncStatus {
   lastError: string | null;
   /** Conflicts resolved in the last cycle; surfaced only in diagnostics. */
   lastConflictCount: number;
+  /**
+   * Rows the last completed cycle brought down.
+   *
+   * Subscribers need this to know whether the ledger actually changed. Without
+   * it the only way to react to a pull was to await sync() yourself, so rows
+   * arriving from another device stayed invisible to anyone who did not
+   * initiate the cycle — which was everyone except the settings panel.
+   */
+  lastPulled: number;
 }
 
 export interface SyncOutcome {
@@ -161,6 +170,7 @@ export class FinanceSyncEngine {
   private running = false;
   private status: SyncStatus = {
     phase: 'idle',
+    lastPulled: 0,
     lastSyncAt: null,
     pendingCount: 0,
     lastError: null,
@@ -338,6 +348,7 @@ export class FinanceSyncEngine {
         lastSyncAt: at,
         lastError: null,
         lastConflictCount: result.conflicts.length,
+        lastPulled: remote.length,
         pendingCount: 0,
       });
       return { ok: true, pulled: remote.length, pushed, conflicts: result.conflicts.length };

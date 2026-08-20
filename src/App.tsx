@@ -13,6 +13,8 @@ import { FinancePet, isNativePetAvailable } from './lib/petBridge';
 import { drainOutbox } from './lib/outboxSync';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { financeRepository } from './lib/financeRepository';
+import { financeSync } from './lib/cloud/financeSync';
+import { authController } from './lib/cloud/auth';
 import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
 import { getQuickCategories } from './lib/quickCategories';
 import PetSprite from './components/pet/PetSprite';
@@ -298,6 +300,44 @@ export default function App() {
       console.error('[FinancePet.Sync] entries kept in the outbox for retry', result.failedIds.length);
     }
   };
+
+  /*
+   * Cloud sync lives here, not in the account panel.
+   *
+   * Two defects in one: the engine was constructed inside AccountPanel, so
+   * syncing only ran while that settings screen was mounted; and nothing ever
+   * told React that a pull had happened, so rows arriving from another device
+   * stayed invisible until the user reloaded the page.
+   *
+   * Triggers are sign-in, returning to the foreground, and the network coming
+   * back — no polling, which would cost battery to discover nothing changed.
+   */
+  useEffect(() => {
+    const runIfSignedIn = () => {
+      const { mode, user } = authController.getState();
+      if (mode === 'signed-in' && user) void financeSync.sync(user.id);
+    };
+
+    const unsubscribeAuth = authController.subscribe(runIfSignedIn);
+    const unsubscribeSync = financeSync.subscribe(status => {
+      // Only on a completed cycle that actually changed the ledger; a status
+      // tick for "syncing" would re-render the whole app for nothing.
+      if (status.phase === 'idle' && status.lastPulled > 0) syncFromRepository();
+    });
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') runIfSignedIn();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', runIfSignedIn);
+    return () => {
+      unsubscribeAuth();
+      unsubscribeSync();
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', runIfSignedIn);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Pull transactions queued by the native pet whenever the app becomes visible
   // or the pet notifies us that a new one was saved.

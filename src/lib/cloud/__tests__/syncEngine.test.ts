@@ -350,3 +350,34 @@ describe('a local edit made while the push is in flight', () => {
     expect(engine.countPending()).toBe(1);
   });
 });
+
+describe('subscribers can tell that a pull changed the ledger', () => {
+  beforeEach(() => vi.useRealTimers());
+
+  it('reports how many rows came down', async () => {
+    const r = repo();
+    const storage = createMemoryStorage();
+    const { client } = fakeCloud({ rows: [cloudRow('c1'), cloudRow('c2')] });
+    const engine = new FinanceSyncEngine(r, storage, () => client, () => true);
+
+    const seen: number[] = [];
+    engine.subscribe(s => seen.push(s.lastPulled));
+    await engine.sync(USER);
+
+    // Without this, the only way to learn a pull happened was to be the caller
+    // who awaited sync() — so rows from another device stayed off screen until
+    // the user reloaded.
+    expect(engine.getStatus().lastPulled).toBe(2);
+    expect(seen[seen.length - 1]).toBe(2);
+  });
+
+  it('stays at zero when the cycle brought nothing', async () => {
+    const r = repo();
+    const { client } = fakeCloud({ rows: [] });
+    const engine = new FinanceSyncEngine(r, createMemoryStorage(), () => client, () => true);
+
+    await engine.sync(USER);
+
+    expect(engine.getStatus().lastPulled).toBe(0);
+  });
+});
