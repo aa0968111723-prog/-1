@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/quick_add_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -81,6 +82,13 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!--
+            金額與自然語言欄位刻意同時設定 hint 與 contentDescription，並抑制
+            ContentDescription 警告。lint 的建議（只留 hint）預設 hint 本身就是
+            好的欄位名稱，但這裡不是：金額的 hint 是「0」，語音欄位的 hint 是
+            範例句。照 lint 改會讓讀螢幕的人聽到「0」而不是「金額」，那是退步。
+            備註欄位的 contentDescription 和 hint 完全相同，屬於冗餘，已移除。
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -108,6 +116,7 @@
                 android:background="@android:color/transparent"
                 android:hint="@string/pet_amount_hint"
                 android:contentDescription="@string/pet_amount_label"
+                tools:ignore="ContentDescription"
                 android:imeOptions="actionDone"
                 android:importantForAutofill="no"
                 android:inputType="numberDecimal"
@@ -157,7 +166,6 @@
                 android:layout_marginTop="10dp"
                 android:background="@drawable/quick_add_field_bg"
                 android:hint="@string/pet_note_hint"
-                android:contentDescription="@string/pet_note_hint"
                 android:importantForAutofill="no"
                 android:inputType="text"
                 android:maxLength="60"
@@ -185,6 +193,7 @@
                     android:background="@drawable/quick_add_field_bg"
                     android:hint="@string/pet_nl_hint"
                     android:contentDescription="@string/pet_nl_label"
+                    tools:ignore="ContentDescription"
                     android:imeOptions="actionGo"
                     android:importantForAutofill="no"
                     android:inputType="text"
