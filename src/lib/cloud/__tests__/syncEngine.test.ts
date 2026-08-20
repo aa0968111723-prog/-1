@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FinanceSyncEngine, toCloudRow, fromCloudRow, SupabaseLike } from '../syncEngine';
 import { FinanceRepository } from '../../financeRepository';
 import { createMemoryStorage } from '../../__tests__/testUtils';
@@ -237,5 +237,39 @@ describe('a sync cycle', () => {
 
     expect(r.getTransactions()).toHaveLength(1);         // tombstone retained
     expect(engine.visibleTransactions()).toHaveLength(0); // but not shown
+  });
+});
+
+describe('the post-write nudge', () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it('collapses a burst of writes into a single cycle', async () => {
+    // Quick add, a correction, another entry — one intent, one radio use.
+    const storage = createMemoryStorage();
+    const r = new FinanceRepository(storage);
+    const { client, pushed } = fakeCloud({ rows: [] });
+    const engine = new FinanceSyncEngine(r, storage, () => client, () => true);
+    const spy = vi.spyOn(engine, 'sync');
+
+    engine.nudge(USER, 3000);
+    engine.nudge(USER, 3000);
+    engine.nudge(USER, 3000);
+    expect(spy).not.toHaveBeenCalled(); // nothing yet — still collapsing
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(spy).toHaveBeenCalledTimes(1);
+    void pushed;
+  });
+
+  it('does nothing at all when signed out', async () => {
+    const storage = createMemoryStorage();
+    const r = new FinanceRepository(storage);
+    const { client } = fakeCloud({ rows: [] });
+    const engine = new FinanceSyncEngine(r, storage, () => client, () => true);
+    const spy = vi.spyOn(engine, 'sync');
+
+    engine.nudge(null);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
