@@ -257,7 +257,7 @@ export interface LinkedEffectResult {
  * previous balance exactly instead of over-crediting on delete.
  */
 export function applyLinkedEffects(
-  tx: Pick<Transaction, 'amount' | 'linkedDebtId' | 'linkedGoalId'>,
+  tx: Pick<Transaction, 'type' | 'amount' | 'linkedDebtId' | 'linkedGoalId'>,
   debts: Debt[],
   goals: Goal[],
 ): LinkedEffectResult {
@@ -275,10 +275,31 @@ export function applyLinkedEffects(
     });
   }
   if (tx.linkedGoalId && tx.amount > 0) {
+    /*
+     * Direction comes from the transaction type.
+     *
+     * This used to credit the goal whatever the type was, so a withdrawal —
+     * recorded as income, money coming back out of the goal and into the
+     * wallet — ADDED to the goal instead of taking from it. Paired with
+     * GoalPlanner's own manual adjustment the two cancelled exactly, and
+     * withdrawing NT$3,000 from a NT$10,000 goal left it at NT$10,000.
+     *
+     * Debts are deliberately left type-agnostic: nothing in the app creates
+     * an income linked to a debt, and inventing a meaning for it (borrowing
+     * more? a refund?) without a caller to check against would be a guess.
+     */
+    const withdrawal = tx.type === 'income';
     nextGoals = goals.map(g => {
       if (g.id !== tx.linkedGoalId) return g;
-      goalApplied = tx.amount;
-      return { ...g, currentAmount: addAmounts(g.currentAmount, tx.amount) };
+      if (!withdrawal) {
+        goalApplied = tx.amount;
+        return { ...g, currentAmount: addAmounts(g.currentAmount, tx.amount) };
+      }
+      // Clamped, so `goalApplied` records what the goal could actually give
+      // back and a later revert restores exactly that.
+      const next = subtractClampedAtZero(g.currentAmount, tx.amount);
+      goalApplied = -subtractAmounts(g.currentAmount, next);
+      return { ...g, currentAmount: next };
     });
   }
   return { debts: nextDebts, goals: nextGoals, debtApplied, goalApplied };
@@ -290,24 +311,34 @@ export function applyLinkedEffects(
  * written before that metadata existed).
  */
 export function revertLinkedEffects(
-  tx: Pick<Transaction, 'amount' | 'linkedDebtId' | 'linkedGoalId' | 'linkedDebtApplied' | 'linkedGoalApplied'>,
+  tx: Pick<Transaction, 'type' | 'amount' | 'linkedDebtId' | 'linkedGoalId' | 'linkedDebtApplied' | 'linkedGoalApplied'>,
   debts: Debt[],
   goals: Goal[],
 ): { debts: Debt[]; goals: Goal[] } {
   let nextDebts = debts;
   let nextGoals = goals;
   const debtDelta = tx.linkedDebtApplied ?? tx.amount;
-  const goalDelta = tx.linkedGoalApplied ?? tx.amount;
+  // Rows written before withdrawals were signed carry a positive applied
+  // amount and were always deposits, so the fallback keeps its old meaning.
+  const goalDelta = tx.linkedGoalApplied ?? (tx.type === 'income' ? -tx.amount : tx.amount);
 
   if (tx.linkedDebtId && debtDelta > 0) {
     nextDebts = debts.map(d =>
       d.id === tx.linkedDebtId ? { ...d, amount: addAmounts(d.amount, debtDelta) } : d,
     );
   }
-  if (tx.linkedGoalId && goalDelta > 0) {
+  if (tx.linkedGoalId && goalDelta !== 0) {
+    // Signed since withdrawals exist: undoing a withdrawal must put the money
+    // back, not take more away.
     nextGoals = goals.map(g =>
       g.id === tx.linkedGoalId
-        ? { ...g, currentAmount: subtractClampedAtZero(g.currentAmount, goalDelta) }
+        ? {
+            ...g,
+            currentAmount:
+              goalDelta > 0
+                ? subtractClampedAtZero(g.currentAmount, goalDelta)
+                : addAmounts(g.currentAmount, -goalDelta),
+          }
         : g,
     );
   }

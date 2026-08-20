@@ -125,25 +125,25 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
     setTargetDate('');
   };
 
+  /**
+   * Move money in or out of a goal.
+   *
+   * The balance is adjusted by the linked-effect engine and by nothing else.
+   * This used to ALSO apply the change by hand before recording the
+   * transaction, so both ran: depositing NT$3,000 into a NT$10,000 goal left
+   * it at NT$16,000, and withdrawing NT$3,000 left it at NT$10,000 because the
+   * manual debit and the engine's (then unconditional) credit cancelled out.
+   *
+   * DebtManager's quick repay has always done it this way — record the
+   * transaction, let applyLinkedEffects move the balance. This is that.
+   */
   const handleTransaction = (goalId: string, currentAmount: number, isDeposit: boolean) => {
-    if (!onUpdate) return;
     const amount = parseAmountInput(transactionAmount);
     if (amount === null) return;
 
-    let newAmount = currentAmount;
-    if (isDeposit) {
-      newAmount += amount;
-    } else {
-      newAmount -= amount;
-      if (newAmount < 0) newAmount = 0;
-    }
-
-    onUpdate(goalId, { currentAmount: newAmount });
-    
-    // Optional: Log it in transactions if needed
     if (onAddTransaction) {
       onAddTransaction({
-        type: isDeposit ? 'expense' : 'income', // Expense from wallet to goal, Income from goal back to wallet
+        type: isDeposit ? 'expense' : 'income', // wallet -> goal, or goal -> wallet
         amount,
         category: 'Investments',
         // local date key: a UTC key files an evening entry under tomorrow
@@ -151,6 +151,11 @@ export default function GoalPlanner({ goals, onAdd, onDelete, onUpdate, onAddTra
         note: transactionNote || (isDeposit ? '存入目標' : '目標提領'),
         linkedGoalId: goalId,
       });
+    } else if (onUpdate) {
+      // No ledger to record into (the prop is optional), so there is no linked
+      // effect to do it for us; adjust directly rather than silently no-op.
+      const next = isDeposit ? currentAmount + amount : Math.max(0, currentAmount - amount);
+      onUpdate(goalId, { currentAmount: next });
     }
 
     setTransactionAmount('');

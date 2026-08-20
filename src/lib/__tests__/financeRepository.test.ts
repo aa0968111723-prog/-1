@@ -159,3 +159,84 @@ describe('deleting writes a tombstone', () => {
     expect(r.getAllTransactionsIncludingDeleted().map(t => t.id).sort()).toEqual(['keep', 'never-synced']);
   });
 });
+
+/*
+ * Moving money in and out of a savings goal.
+ *
+ * Two implementations were running at once: GoalPlanner adjusted the balance
+ * by hand AND recorded a linked transaction, whose effect adjusted it again.
+ * Depositing NT$3,000 into a NT$10,000 goal left it at NT$16,000. Withdrawing
+ * NT$3,000 left it at NT$10,000, because applyLinkedEffects ignored the
+ * transaction type and credited the goal for a withdrawal, cancelling the
+ * manual debit exactly. DebtManager's quick repay never had the bug — it
+ * records the transaction and lets the engine move the balance.
+ */
+describe('goal deposits and withdrawals', () => {
+  const goalAt = (currentAmount: number): Goal => ({
+    id: 'g1',
+    name: '旅遊基金',
+    targetAmount: 50000,
+    currentAmount,
+    targetDate: '2027-01-01',
+  });
+
+  function withGoal(currentAmount = 10000) {
+    const r = new FinanceRepository(createMemoryStorage());
+    r.saveGoals([goalAt(currentAmount)]);
+    return r;
+  }
+
+  const deposit = { type: 'expense' as const, category: 'Investments', date: '2026-08-20', note: '存入目標', linkedGoalId: 'g1' };
+  const withdraw = { type: 'income' as const, category: 'Investments', date: '2026-08-20', note: '目標提領', linkedGoalId: 'g1' };
+
+  it('a deposit credits the goal exactly once', () => {
+    const r = withGoal();
+    r.addTransaction({ ...deposit, amount: 3000 });
+    expect(r.getGoals()[0].currentAmount).toBe(13000);
+  });
+
+  it('a withdrawal debits the goal instead of crediting it', () => {
+    const r = withGoal();
+    r.addTransaction({ ...withdraw, amount: 3000 });
+    expect(r.getGoals()[0].currentAmount).toBe(7000);
+  });
+
+  it('undoing a withdrawal puts the money back', () => {
+    const r = withGoal();
+    const tx = r.addTransaction({ ...withdraw, amount: 3000 });
+    r.deleteTransaction(tx.id);
+    expect(r.getGoals()[0].currentAmount).toBe(10000);
+  });
+
+  it('an over-withdrawal clamps at zero and undo restores what was taken', () => {
+    const r = withGoal();
+    const tx = r.addTransaction({ ...withdraw, amount: 99999 });
+    expect(r.getGoals()[0].currentAmount).toBe(0);
+
+    // Restores 10000, not 99999: the recorded delta is what the goal could
+    // actually give back, not what was asked for.
+    r.deleteTransaction(tx.id);
+    expect(r.getGoals()[0].currentAmount).toBe(10000);
+  });
+
+  it('records the direction so an old positive delta still reads as a deposit', () => {
+    const r = withGoal();
+    const tx = r.addTransaction({ ...deposit, amount: 3000 });
+    const stored = r.getTransactions().find(t => t.id === tx.id) as Transaction & { linkedGoalApplied?: number };
+    expect(stored.linkedGoalApplied).toBe(3000);
+
+    const out = r.addTransaction({ ...withdraw, amount: 1000 });
+    const storedOut = r.getTransactions().find(t => t.id === out.id) as Transaction & { linkedGoalApplied?: number };
+    expect(storedOut.linkedGoalApplied).toBe(-1000);
+  });
+
+  it('reverts a legacy row that predates signed deltas', () => {
+    const r = withGoal();
+    // Written before linkedGoalApplied existed: positive amount, deposit.
+    r.saveTransactions([
+      { id: 'legacy', type: 'expense', amount: 2000, category: 'Investments', date: '2026-08-01', note: '', linkedGoalId: 'g1' } as Transaction,
+    ]);
+    r.deleteTransaction('legacy');
+    expect(r.getGoals()[0].currentAmount).toBe(8000);
+  });
+});
