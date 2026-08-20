@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createBackup, validateBackup, applyBackup, FinanceBackup } from '../backup';
-import { STORAGE_KEYS, CURRENT_STORAGE_VERSION } from '../storage';
+import { STORAGE_KEYS, CURRENT_STORAGE_VERSION, loadJSON, saveJSON } from '../storage';
 import { createMemoryStorage } from './testUtils';
 import { Transaction } from '../../types';
 
@@ -95,5 +95,66 @@ describe('a tombstone is not an entry', () => {
     const result = validateBackup(backup);
 
     expect(result.counts.transactions).toBe(1);
+  });
+});
+
+/*
+ * The README tells people the JSON export is a 完整備份 and to use it when
+ * they change device or clear their cache. It was leaving the taxonomy behind:
+ * transactions came back referring to custom categories that no longer
+ * existed, with the pinned chips and payment-method preferences gone too.
+ */
+describe('a backup carries the taxonomy the ledger is written in', () => {
+  function seededStorage() {
+    const storage = createMemoryStorage();
+    saveJSON(STORAGE_KEYS.customCategories, [
+      { id: 'custom:心理諮商', label: '心理諮商', emoji: '🛋️', type: 'expense', custom: true, createdAt: '2026-01-01T00:00:00Z' },
+    ], storage);
+    saveJSON(STORAGE_KEYS.pinnedCategories, ['food', 'custom:心理諮商'], storage);
+    saveJSON(STORAGE_KEYS.paymentMethodPrefs, { enabled: ['cash', 'credit'], defaultId: 'credit' }, storage);
+    return storage;
+  }
+
+  it('exports custom categories, pinned chips and payment preferences', () => {
+    const backup = createBackup(seededStorage());
+
+    expect(backup.customCategories?.[0].label).toBe('心理諮商');
+    expect(backup.pinnedCategories).toEqual(['food', 'custom:心理諮商']);
+    expect(backup.paymentMethodPrefs).toEqual({ enabled: ['cash', 'credit'], defaultId: 'credit' });
+  });
+
+  it('restores them onto a clean device', () => {
+    const backup = createBackup(seededStorage());
+    const fresh = createMemoryStorage();
+
+    applyBackup(backup, 'replace', fresh);
+
+    expect(loadJSON(STORAGE_KEYS.customCategories, [], fresh)).toHaveLength(1);
+    expect(loadJSON(STORAGE_KEYS.pinnedCategories, [], fresh)).toEqual(['food', 'custom:心理諮商']);
+    expect(loadJSON(STORAGE_KEYS.paymentMethodPrefs, {}, fresh)).toEqual({ enabled: ['cash', 'credit'], defaultId: 'credit' });
+  });
+
+  it('merging keeps the categories this device already had', () => {
+    const backup = createBackup(seededStorage());
+    const other = createMemoryStorage();
+    saveJSON(STORAGE_KEYS.customCategories, [
+      { id: 'custom:寵物', label: '寵物', emoji: '🐾', type: 'expense', custom: true, createdAt: '2026-02-01T00:00:00Z' },
+    ], other);
+
+    applyBackup(backup, 'merge', other);
+
+    const ids = loadJSON<Array<{ id: string }>>(STORAGE_KEYS.customCategories, [], other).map(c => c.id).sort();
+    expect(ids).toEqual(['custom:寵物', 'custom:心理諮商']);
+  });
+
+  it('still imports a file written before the taxonomy was included', () => {
+    const legacy = { ...createBackup(seededStorage()) } as Partial<FinanceBackup>;
+    delete legacy.customCategories;
+    delete legacy.pinnedCategories;
+    delete legacy.paymentMethodPrefs;
+
+    const fresh = createMemoryStorage();
+    expect(() => applyBackup(legacy as FinanceBackup, 'replace', fresh)).not.toThrow();
+    expect(loadJSON(STORAGE_KEYS.customCategories, [], fresh)).toEqual([]);
   });
 });

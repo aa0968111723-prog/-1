@@ -10,6 +10,8 @@ import { Transaction, BudgetConfig, RecurringTransaction, Debt, Goal, Spreadshee
 import { isTombstoned } from './tombstone';
 import { STORAGE_KEYS, CURRENT_STORAGE_VERSION, loadJSON, saveJSON } from './storage';
 import { PetSettings, loadPetSettings } from './petSettings';
+import { CustomCategory } from './categoryRegistry';
+import { PaymentMethodPrefs } from './paymentMethods';
 
 export interface FinanceBackup {
   schemaVersion: number;
@@ -22,6 +24,18 @@ export interface FinanceBackup {
   spreadsheetRecords: SpreadsheetRecord[];
   monthlyIncome: number;
   petSettings: PetSettings;
+  /**
+   * The taxonomy the ledger is written in.
+   *
+   * Optional so an older backup file still imports. Their absence was a real
+   * gap: the README calls the export a 完整備份 and tells people to use it
+   * when they change device or clear their cache, and every user-defined
+   * category, pinned chip and payment-method preference was left behind. The
+   * transactions came back referring to categories that no longer existed.
+   */
+  customCategories?: CustomCategory[];
+  pinnedCategories?: string[];
+  paymentMethodPrefs?: PaymentMethodPrefs;
 }
 
 export interface BackupValidation {
@@ -42,6 +56,9 @@ export function createBackup(storage: Storage | undefined = globalThis.localStor
     spreadsheetRecords: loadJSON<SpreadsheetRecord[]>(STORAGE_KEYS.spreadsheetRecords, [], storage),
     monthlyIncome: Number(storage?.getItem(STORAGE_KEYS.monthlyIncome) ?? 0) || 0,
     petSettings: loadPetSettings(storage),
+    customCategories: loadJSON<CustomCategory[]>(STORAGE_KEYS.customCategories, [], storage),
+    pinnedCategories: loadJSON<string[]>(STORAGE_KEYS.pinnedCategories, [], storage),
+    paymentMethodPrefs: loadJSON<PaymentMethodPrefs>(STORAGE_KEYS.paymentMethodPrefs, {} as PaymentMethodPrefs, storage),
   };
 }
 
@@ -129,5 +146,25 @@ export function applyBackup(
   }
   if (mode === 'replace' && backup.petSettings) {
     saveJSON(STORAGE_KEYS.petSettings, backup.petSettings, storage);
+  }
+
+  /*
+   * The taxonomy. Merged by id on 合併 so a device that already has its own
+   * custom categories does not lose them to an older file, and an id present
+   * on both sides keeps the local definition (same rule as transactions).
+   */
+  if (backup.customCategories) {
+    const current = loadJSON<CustomCategory[]>(STORAGE_KEYS.customCategories, [], storage);
+    saveJSON(STORAGE_KEYS.customCategories, mergeById(current, backup.customCategories), storage);
+  }
+  if (backup.pinnedCategories) {
+    const current = loadJSON<string[]>(STORAGE_KEYS.pinnedCategories, [], storage);
+    const next = mode === 'replace'
+      ? backup.pinnedCategories
+      : [...current, ...backup.pinnedCategories.filter(id => !current.includes(id))];
+    saveJSON(STORAGE_KEYS.pinnedCategories, next, storage);
+  }
+  if (backup.paymentMethodPrefs && (mode === 'replace' || !storage.getItem(STORAGE_KEYS.paymentMethodPrefs))) {
+    saveJSON(STORAGE_KEYS.paymentMethodPrefs, backup.paymentMethodPrefs, storage);
   }
 }
