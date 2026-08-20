@@ -1,12 +1,17 @@
 /**
- * Quick-add category chips: pinned first, then most-used (recency-weighted),
- * padded with the shared defaults. Chip definitions come from the shared
- * catalog (shared/pet-shared-config.json) so web and native stay identical.
+ * Quick-add chip ranking.
+ *
+ * Deterministic and explainable — no opaque model. The order is
+ *   pinned  >  time-of-day context  >  frequency (60d)  >  recency  >  defaults
+ * and the same ranked list is pushed to the Android quick add sheet so both
+ * surfaces show the same five or six chips.
  */
 
-import { Transaction, TransactionType, CATEGORIES } from '../types';
+import { Transaction, TransactionType } from '../types';
 import { CATEGORY_DEFS, QUICK_CHIP_DEFS, categoryIdForStored, emojiForCategory } from './categoryCatalog';
+import { listCategories } from './categoryRegistry';
 import { STORAGE_KEYS, loadJSON } from './storage';
+import { getLocalDateKey, addDaysKey, daysBetween } from './datetime';
 
 export interface QuickCategoryChip {
   emoji: string;
@@ -27,6 +32,34 @@ export const CATEGORY_EMOJI: Record<string, string> = Object.fromEntries(
   ]),
 );
 
+/** How many days of history feed the frequency score. */
+const HISTORY_DAYS = 60;
+
+const PINNED_WEIGHT = 1_000_000;
+const CONTEXT_WEIGHT = 500;
+const FREQUENCY_WEIGHT = 10;
+const RECENCY_WEIGHT = 30;
+
+/**
+ * Time-of-day nudges. Deliberately tiny and legible — only the two patterns
+ * that are actually reliable: meals around eating hours, transport around
+ * commuting hours. Nothing else is inferred, and nothing is learned in a way
+ * the user cannot predict.
+ */
+export function contextBoostForHour(hour: number): Record<string, number> {
+  const boosts: Record<string, number> = {};
+  const isMealTime = (hour >= 6 && hour <= 9) || (hour >= 11 && hour <= 14) || (hour >= 17 && hour <= 21);
+  const isCommute = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
+  if (isMealTime) boosts.food = 2;
+  if (isCommute) boosts.transport = 1;
+  return boosts;
+}
+
+export function loadPinnedCategoryIds(storage: Storage | undefined = globalThis.localStorage): string[] {
+  const pinned = loadJSON<unknown>(STORAGE_KEYS.pinnedCategories, [], storage);
+  return Array.isArray(pinned) ? pinned.filter((p): p is string => typeof p === 'string') : [];
+}
+
 function defaultChips(type: TransactionType): QuickCategoryChip[] {
   return QUICK_CHIP_DEFS[type].map(c => ({
     emoji: c.emoji,
@@ -37,39 +70,89 @@ function defaultChips(type: TransactionType): QuickCategoryChip[] {
   }));
 }
 
-/** User-pinned category ids, managed in 桌寵設定 → 快速記帳. */
-export function loadPinnedCategoryIds(storage: Storage | undefined = globalThis.localStorage): string[] {
-  const pinned = loadJSON<unknown>(STORAGE_KEYS.pinnedCategories, [], storage);
-  return Array.isArray(pinned) ? pinned.filter((p): p is string => typeof p === 'string') : [];
+export interface RankedCategory {
+  categoryId: string;
+  label: string;
+  emoji: string;
+  score: number;
+  /** Why it ranked here — surfaced in tests and the debug panel. */
+  reasons: string[];
+}
+
+/** The scoring pass, exposed for tests and diagnostics. */
+export function rankCategories(
+  transactions: Transaction[],
+  type: TransactionType,
+  now: Date = new Date(),
+  pinnedIds: string[] = loadPinnedCategoryIds(),
+  storage: Storage | undefined = globalThis.localStorage,
+): RankedCategory[] {
+  const available = listCategories(type, storage);
+  const availableIds = new Set(available.map(c => c.id));
+  const cutoff = addDaysKey(now, -HISTORY_DAYS);
+  const todayKey = getLocalDateKey(now);
+  const context = contextBoostForHour(now.getHours());
+
+  const counts = new Map<string, number>();
+  const lastUsed = new Map<string, string>();
+  for (const t of transactions) {
+    if (t.type !== type || t.date < cutoff) continue;
+    const id = t.categoryId ?? categoryIdForStored(t.category);
+    if (!availableIds.has(id)) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+    const prev = lastUsed.get(id);
+    if (!prev || t.date > prev) lastUsed.set(id, t.date);
+  }
+
+  return available
+    .map(def => {
+      const reasons: string[] = [];
+      let score = 0;
+
+      const pinnedIndex = pinnedIds.indexOf(def.id);
+      if (pinnedIndex >= 0) {
+        score += PINNED_WEIGHT - pinnedIndex;
+        reasons.push(`pinned#${pinnedIndex + 1}`);
+      }
+
+      const boost = context[def.id];
+      if (boost) {
+        score += boost * CONTEXT_WEIGHT;
+        reasons.push('context');
+      }
+
+      const count = counts.get(def.id) ?? 0;
+      if (count > 0) {
+        score += count * FREQUENCY_WEIGHT;
+        reasons.push(`used×${count}`);
+      }
+
+      const last = lastUsed.get(def.id);
+      if (last) {
+        const age = Math.max(0, daysBetween(last, todayKey));
+        score += Math.max(0, RECENCY_WEIGHT - age);
+        reasons.push(`recent-${age}d`);
+      }
+
+      return { categoryId: def.id, label: def.label, emoji: def.emoji, score, reasons };
+    })
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label, 'zh-TW'));
 }
 
 /**
- * Returns 4-6 chips ordered: pinned -> frequently/recently used (last 60
- * days) -> shared defaults. Chips always map onto the existing CATEGORIES
- * taxonomy.
+ * Returns the chips the quick-add surfaces show: ranked real usage first,
+ * padded with the shared defaults so a brand-new user still gets a usable row.
  */
 export function getQuickCategories(
   transactions: Transaction[],
   type: TransactionType,
   now: Date = new Date(),
-  max = 6,
+  max = 5,
   pinnedIds: string[] = loadPinnedCategoryIds(),
+  storage: Storage | undefined = globalThis.localStorage,
 ): QuickCategoryChip[] {
   const defaults = defaultChips(type);
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - 60);
-  const cutoffStr = cutoff.toISOString().split('T')[0];
-
-  const scores = new Map<string, number>();
-  for (const t of transactions) {
-    if (t.type !== type || t.date < cutoffStr) continue;
-    scores.set(t.category, (scores.get(t.category) ?? 0) + 1);
-  }
-
-  const used = [...scores.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([category]) => category)
-    .filter(c => CATEGORIES[type].includes(c));
+  const ranked = rankCategories(transactions, type, now, pinnedIds, storage).filter(r => r.score > 0);
 
   const chips: QuickCategoryChip[] = [];
   const seen = new Set<string>();
@@ -79,22 +162,18 @@ export function getQuickCategories(
     seen.add(key);
     chips.push(chip);
   };
-  const chipForCategory = (category: string): QuickCategoryChip => {
-    const id = categoryIdForStored(category);
-    const preset = defaults.find(d => d.categoryId === id && !d.note);
-    return preset ?? { emoji: emojiForCategory(category), label: category.slice(0, 2), category, categoryId: id };
-  };
 
-  // 1. pinned
-  const typeIds = new Set(CATEGORY_DEFS[type].map(d => d.id));
-  for (const id of pinnedIds) {
-    if (!typeIds.has(id)) continue;
-    const def = CATEGORY_DEFS[type].find(d => d.id === id)!;
-    pushChip(chipForCategory(def.label));
+  for (const r of ranked) {
+    const preset = defaults.find(d => d.categoryId === r.categoryId && !d.note);
+    pushChip(
+      preset ?? {
+        emoji: r.emoji || emojiForCategory(r.label),
+        label: r.label.slice(0, 3),
+        category: r.label,
+        categoryId: r.categoryId,
+      },
+    );
   }
-  // 2. frequently / recently used
-  for (const category of used) pushChip(chipForCategory(category));
-  // 3. shared defaults
   for (const chip of defaults) pushChip(chip);
   return chips;
 }

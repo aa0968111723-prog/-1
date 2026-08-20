@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/quick_add_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -11,7 +12,8 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:background="@drawable/quick_add_sheet_bg"
-        android:paddingHorizontal="20dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
         android:paddingTop="16dp"
         android:paddingBottom="16dp">
 
@@ -58,7 +60,8 @@
                 android:layout_weight="1"
                 android:gravity="center"
                 android:minHeight="44dp"
-                android:paddingVertical="8dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:text="@string/pet_type_expense"
                 android:textColor="@color/pet_text_primary"
                 android:textSize="14sp"
@@ -71,13 +74,21 @@
                 android:layout_weight="1"
                 android:gravity="center"
                 android:minHeight="44dp"
-                android:paddingVertical="8dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:text="@string/pet_type_income"
                 android:textColor="@color/pet_text_secondary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!--
+            金額與自然語言欄位刻意同時設定 hint 與 contentDescription，並抑制
+            ContentDescription 警告。lint 的建議（只留 hint）預設 hint 本身就是
+            好的欄位名稱，但這裡不是：金額的 hint 是「0」，語音欄位的 hint 是
+            範例句。照 lint 改會讓讀螢幕的人聽到「0」而不是「金額」，那是退步。
+            備註欄位的 contentDescription 和 hint 完全相同，屬於冗餘，已移除。
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -85,7 +96,8 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/quick_add_field_bg"
-            android:paddingHorizontal="16dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -104,12 +116,14 @@
                 android:background="@android:color/transparent"
                 android:hint="@string/pet_amount_hint"
                 android:contentDescription="@string/pet_amount_label"
+                tools:ignore="ContentDescription"
                 android:imeOptions="actionDone"
                 android:importantForAutofill="no"
                 android:inputType="numberDecimal"
                 android:maxLength="10"
                 android:minHeight="56dp"
-                android:paddingVertical="12dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
                 android:textColor="@color/pet_text_primary"
                 android:textColorHint="@color/pet_text_hint"
                 android:textSize="24sp"
@@ -152,13 +166,14 @@
                 android:layout_marginTop="10dp"
                 android:background="@drawable/quick_add_field_bg"
                 android:hint="@string/pet_note_hint"
-                android:contentDescription="@string/pet_note_hint"
                 android:importantForAutofill="no"
                 android:inputType="text"
                 android:maxLength="60"
                 android:minHeight="48dp"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="10dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
                 android:textColor="@color/pet_text_primary"
                 android:textColorHint="@color/pet_text_hint"
                 android:textSize="14sp" />
@@ -178,13 +193,16 @@
                     android:background="@drawable/quick_add_field_bg"
                     android:hint="@string/pet_nl_hint"
                     android:contentDescription="@string/pet_nl_label"
+                    tools:ignore="ContentDescription"
                     android:imeOptions="actionGo"
                     android:importantForAutofill="no"
                     android:inputType="text"
                     android:maxLength="60"
                     android:minHeight="48dp"
-                    android:paddingHorizontal="16dp"
-                    android:paddingVertical="10dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
                     android:textColor="@color/pet_text_primary"
                     android:textColorHint="@color/pet_text_hint"
                     android:textSize="14sp" />
@@ -214,7 +232,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="48dp"
                 android:gravity="center"
-                android:paddingHorizontal="12dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
                 android:text="@string/pet_more"
                 android:textColor="@color/pet_text_secondary"
                 android:textSize="14sp"
@@ -229,7 +248,8 @@
                 android:background="@drawable/quick_add_save_bg"
                 android:gravity="center"
                 android:minHeight="52dp"
-                android:paddingVertical="14dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="14dp"
                 android:text="@string/pet_save"
                 android:textColor="#FFFFFF"
                 android:textSize="17sp"
@@ -258,8 +278,10 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@drawable/quick_add_undo_bg"
-        android:paddingHorizontal="20dp"
-        android:paddingVertical="8dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:visibility="gone">
 
         <TextView
@@ -275,7 +297,8 @@
             android:layout_height="48dp"
             android:layout_marginStart="16dp"
             android:gravity="center"
-            android:paddingHorizontal="8dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:text="@string/pet_undo"
             android:textColor="@color/pet_accent"
             android:textSize="14sp"

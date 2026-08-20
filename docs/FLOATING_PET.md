@@ -18,11 +18,14 @@ Capacitor 8 (android/, compileSdk 36 / targetSdk 36, minSdk 24)
    │                                     getPendingTransactions/ackPendingTransactions + petEvent
    ▼
 Native Overlay 層 (com.fintracker.app.pet)
-   FloatingPetService.kt   specialUse 前景服務：建立/移除 overlay、通知、lifecycle
+   FloatingPetService.kt   specialUse 前景服務：建立/移除 overlay、通知、lifecycle、螢幕開關
    FloatingPetView.kt      tap / drag / long-press 手勢（touch slop + long-press timeout）
+   PetStateMachine.kt      動畫狀態機與優先權仲裁（純邏輯，可 JVM 測試）
    PetRenderer.kt          動畫抽象（預留 Rive/Lottie/Live2D）；DrawablePetRenderer 為第一版
-   PetPositionManager.kt   正規化座標 (0..1 + edge)，跨解析度/旋轉恢復位置（純邏輯，可 JVM 測試）
-   PendingTransactionCodec / Queue     WebView 不在時的交易暫存佇列（純邏輯 + SharedPreferences）
+   PetPositionManager.kt   正規化座標 (0..1 + edge)，跨解析度/旋轉恢復位置（純邏輯）
+   PendingTransactionCodec / Queue     durable outbox（純邏輯 codec + SharedPreferences commit）
+   PetSharedConfig(Core).kt            共用設定資產讀取（分類／chips／支付／解析規則）
+   NativeQuickParser.kt    以共用設定驅動的離線 NL 解析（與 web 同規則，可 JVM 測試）
    OverlayPermissionManager.kt         SYSTEM_ALERT_WINDOW 檢查與導向
    PetActionBridge.kt      Native → Plugin 的語意事件匯流排
    QuickAddActivity.kt     透明 bottom-sheet 快速記帳容器（無 WebView、無 splash）
@@ -31,13 +34,27 @@ Native Overlay 層 (com.fintracker.app.pet)
 
 ## 資料流（絕不分裂成兩套帳）
 
-- Web `localStorage`（`finance_transactions` 等原 key）是唯一 source of truth。
-- 桌寵記帳（App 沒開）：QuickAddActivity → `PendingTransactionQueue`（SharedPreferences）
-  → WebView 下次存活時 `getPendingTransactions` → 走原本 `addTransaction` → `ackPendingTransactions`。
-  UUID 保留，drain 具冪等性，不會重複匯入。
-- App 開著時：`transactionQueued` 事件即時 drain，Dashboard / 收支明細 / Budget 立即同步。
-- Web → Native：`updatePetState` 推送 `petFinanceState` 計算結果（心情、訊息、streak、XP），
-  Native 只負責顯示，不重寫財務邏輯。
+Web `localStorage`（`finance_transactions` 等原 key）是唯一 source of truth；
+決策理由與被否決的 SQLite 方案見 `docs/ADR-001-canonical-storage.md`。
+
+**寫入與確認的順序就是不漏帳的關鍵**：
+
+```
+QuickAddActivity
+  → PendingTransactionQueue.add()   commit() + 讀回驗證；失敗就不宣告成功
+  → 只有成功才顯示「記好啦！」
+  → WebView 存活時發 transactionQueued 事件，否則等下次開 App
+  → drainNativeOutbox():
+       repository.addTransaction(tx)   同步寫 localStorage，對 id 冪等
+       repository.hasTransaction(id)   確認真的落盤
+       syncFromRepository()            UI 從 storage 讀回
+       ackPendingTransactions(ids)     ← 最後才讓 outbox 忘記
+```
+
+任何一步崩潰只會造成 replay，而 replay 被 id 冪等吸收 → **exactly-once**。
+
+Web → Native 只推送 `PetDisplayState`（mood / message / streak / 今日筆數 / level），
+不含交易明細、餘額或負債；Native 從不重算財務。
 
 ## Storage migration
 
@@ -98,8 +115,11 @@ warning > … > idle），成功動畫不會被眨眼蓋掉；夜間 (23:00–07
   「暫停 30 分鐘」降低干擾。
 - 本開發環境無法連 dl.google.com（Android SDK / AGP），完整 `gradlew test /
   assembleDebug` 由 GitHub Actions CI 執行並上傳 `app-debug.apk` artifact；
-  純邏輯 Kotlin 測試（29 條）已在 JVM 上通過。實機矩陣見
+  純邏輯 Kotlin 測試（40 條）已在 JVM 上通過。實機矩陣見
   `docs/DEVICE_TEST_CHECKLIST.md`。
+- minSdk 宣告 24，但 API 24/25 的相容路徑（`TYPE_PHONE`、以及 API 26 才有的
+  padding 屬性）沒有在任何 7.x 裝置或模擬器上驗證過。詳見
+  `docs/REAL_DEVICE_TESTING.md` 的「minSdk 24 的特別注意」。
 
 ## 本機建置
 

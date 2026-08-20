@@ -23,12 +23,33 @@ object PendingTransactionQueue {
     const val KEY_CORRUPT_BACKUP = "pending_transactions_corrupt_backup"
     private const val TAG = "FinancePetSync"
 
+    /**
+     * Appends an entry and reports whether it is genuinely on disk.
+     *
+     * Uses commit() (synchronous) rather than apply(): the outbox write IS the
+     * durability guarantee, and the caller may only show "記好啦" once this
+     * returns true. The entry is also read back, so a silent write failure
+     * cannot be mistaken for success.
+     */
     @Synchronized
-    fun add(prefs: SharedPreferences, tx: PendingTransactionCodec.PendingTransaction) {
-        val raw = readRepairingCorruption(prefs)
-        prefs.edit()
-            .putString(KEY_PENDING, PendingTransactionCodec.appended(raw, tx))
-            .commit() // commit, not apply: the outbox write IS the durability guarantee
+    fun add(prefs: SharedPreferences, tx: PendingTransactionCodec.PendingTransaction): Boolean {
+        return try {
+            val raw = readRepairingCorruption(prefs)
+            val committed = prefs.edit()
+                .putString(KEY_PENDING, PendingTransactionCodec.appended(raw, tx))
+                .commit()
+            if (!committed) {
+                Log.e(TAG, "Outbox commit returned false; entry not persisted")
+                return false
+            }
+            val persisted = PendingTransactionCodec.parse(prefs.getString(KEY_PENDING, null))
+                .any { it.id == tx.id }
+            if (!persisted) Log.e(TAG, "Outbox read-back missing the entry just written")
+            persisted
+        } catch (e: Exception) {
+            Log.e(TAG, "Outbox write failed", e)
+            false
+        }
     }
 
     @Synchronized

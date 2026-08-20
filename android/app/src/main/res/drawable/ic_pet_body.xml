@@ -1,29 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 小財: round golden finance-guardian chick with a tiny coin. -->
+<!--
+  小財 — body only. The face is a separate drawable layered on top so the
+  renderer can swap expressions without redrawing the character, and so a
+  future Rive/Lottie renderer can replace either layer independently.
+  Round, soft, warm; readable at 56dp on any wallpaper thanks to the rim.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- soft drop shadow -->
+    <!-- contact shadow -->
     <path
-        android:pathData="M24,96 a30,7 0 1,0 60,0 a30,7 0 1,0 -60,0"
-        android:fillColor="#33000000" />
+        android:pathData="M26,97 a28,6 0 1,0 56,0 a28,6 0 1,0 -56,0"
+        android:fillColor="#26000000" />
+
+    <!-- soft outer rim keeps the pet visible on white and on black -->
+    <path
+        android:pathData="M11,55 a43,43 0 1,0 86,0 a43,43 0 1,0 -86,0"
+        android:fillColor="#33FFFFFF" />
 
     <!-- body -->
     <path
-        android:pathData="M14,56 a40,40 0 1,0 80,0 a40,40 0 1,0 -80,0"
+        android:pathData="M14,55 a40,40 0 1,0 80,0 a40,40 0 1,0 -80,0"
         android:fillColor="#FFD66B"
-        android:strokeColor="#E9BC55"
-        android:strokeWidth="2.5" />
+        android:strokeColor="#E0AE45"
+        android:strokeWidth="2" />
 
-    <!-- belly -->
+    <!-- belly highlight -->
     <path
-        android:pathData="M32,66 a22,20 0 1,0 44,0 a22,20 0 1,0 -44,0"
-        android:fillColor="#FFF1C9" />
+        android:pathData="M32,67 a22,19 0 1,0 44,0 a22,19 0 1,0 -44,0"
+        android:fillColor="#FFF3D2" />
 
-    <!-- sprout on head -->
+    <!-- top sprout -->
     <path
         android:pathData="M54,16 C52,8 58,4 62,7 C58,8 56,12 57,16 Z"
         android:fillColor="#8FBF7F" />
@@ -36,44 +46,16 @@
         android:pathData="M94,58 C100,52 98,42 90,40 C92,48 92,54 88,60 Z"
         android:fillColor="#F5C755" />
 
-    <!-- eyes -->
+    <!-- coin held at the belly: the finance cue, not a bank logo -->
     <path
-        android:pathData="M36,50 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0"
-        android:fillColor="#4A3B2A" />
-    <path
-        android:pathData="M63,50 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0"
-        android:fillColor="#4A3B2A" />
-    <!-- eye sparkles -->
-    <path
-        android:pathData="M38,48 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"
-        android:fillColor="#FFFFFF" />
-    <path
-        android:pathData="M65,48 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0"
-        android:fillColor="#FFFFFF" />
-
-    <!-- blush -->
-    <path
-        android:pathData="M27,60 a5,3.5 0 1,0 10,0 a5,3.5 0 1,0 -10,0"
-        android:fillColor="#66F7A8A0" />
-    <path
-        android:pathData="M71,60 a5,3.5 0 1,0 10,0 a5,3.5 0 1,0 -10,0"
-        android:fillColor="#66F7A8A0" />
-
-    <!-- beak -->
-    <path
-        android:pathData="M49,57 L59,57 L54,64 Z"
-        android:fillColor="#F2954B" />
-
-    <!-- coin hugged at the bottom -->
-    <path
-        android:pathData="M42,82 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0"
+        android:pathData="M43,83 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0"
         android:fillColor="#F5B940"
-        android:strokeColor="#D99A2B"
-        android:strokeWidth="2" />
+        android:strokeColor="#D0921F"
+        android:strokeWidth="1.8" />
     <path
-        android:pathData="M54,76 L54,88 M50,79 C58,77 58,83 50,83 C58,83 58,89 50,87"
+        android:pathData="M54,77.5 L54,88.5 M50.5,80 C57.5,78.4 57.5,83.4 50.5,83.4 C57.5,83.4 57.5,88.4 50.5,86.8"
         android:strokeColor="#B57F1F"
-        android:strokeWidth="2"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:fillColor="#00000000" />
 </vector>

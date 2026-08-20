@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Transaction, CATEGORIES, TransactionType, Debt, Goal, PaymentMethod, PAYMENT_METHODS } from '../types';
 import { PlusCircle, Link as LinkIcon, Wallet, CheckSquare, Square } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getLocalDateKey } from '../lib/datetime';
+import { formatMoney, parseAmountInput } from '../lib/money';
 
 interface TransactionFormProps {
   onAddTransaction: (transaction: Omit<Transaction, 'id'>) => void;
@@ -13,7 +15,8 @@ export default function TransactionForm({ onAddTransaction, debts = [], goals = 
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState(CATEGORIES.expense[0]);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  // Local date key: an evening entry in UTC+8 must not be filed under tomorrow.
+  const [date, setDate] = useState(getLocalDateKey());
   const [note, setNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [linkedDebtId, setLinkedDebtId] = useState('');
@@ -45,7 +48,8 @@ export default function TransactionForm({ onAddTransaction, debts = [], goals = 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || isNaN(Number(amount))) return;
+    const parsedAmount = parseAmountInput(amount);
+    if (parsedAmount === null) return;
 
     if (saveAsDefault) {
       const currentDefaults = JSON.parse(localStorage.getItem('fintracker_tx_defaults') || '{}');
@@ -60,7 +64,7 @@ export default function TransactionForm({ onAddTransaction, debts = [], goals = 
 
     onAddTransaction({
       type,
-      amount: Number(amount),
+      amount: parsedAmount,
       category,
       date,
       note,
@@ -191,7 +195,7 @@ export default function TransactionForm({ onAddTransaction, debts = [], goals = 
             >
               <option value="" className="bg-white text-[#5C5248]">不連結任何債務</option>
               {debts.map(d => (
-                <option key={d.id} value={d.id} className="bg-white text-[#5C5248]">{d.name} (還需還款: NT$ {d.amount.toLocaleString()})</option>
+                <option key={d.id} value={d.id} className="bg-white text-[#5C5248]">{d.name} (還需還款: {formatMoney(d.amount)})</option>
               ))}
             </select>
           </div>
@@ -209,7 +213,7 @@ export default function TransactionForm({ onAddTransaction, debts = [], goals = 
             >
               <option value="" className="bg-white text-[#5C5248]">不連結任何目標</option>
               {goals.map(g => (
-                <option key={g.id} value={g.id} className="bg-white text-[#5C5248]">{g.name} (還需存入: NT$ {(g.targetAmount - g.currentAmount).toLocaleString()})</option>
+                <option key={g.id} value={g.id} className="bg-white text-[#5C5248]">{g.name} (還需存入: {formatMoney(g.targetAmount - g.currentAmount)})</option>
               ))}
             </select>
           </div>

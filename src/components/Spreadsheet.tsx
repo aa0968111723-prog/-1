@@ -3,6 +3,7 @@ import { SpreadsheetRecord } from '../types';
 import { Plus, Trash2, TrendingUp, Save } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { cn } from '../lib/utils';
+import { formatMoney } from '../lib/money';
 
 interface Props {
   records: SpreadsheetRecord[];
@@ -32,10 +33,17 @@ export default function Spreadsheet({ records, onAdd, onUpdate, onDelete }: Prop
     e.preventDefault();
     if (!newPeriod.trim()) return;
 
+    // Assets/liabilities may legitimately be 0, so only NaN/negatives are rejected
+    // (parseAmountInput would also reject 0, which is a valid snapshot value here).
+    const assets = Number(newAssets);
+    const liabilities = Number(newLiabilities);
+    if (!Number.isFinite(assets) || assets < 0) return;
+    if (!Number.isFinite(liabilities) || liabilities < 0) return;
+
     onAdd({
       period: newPeriod.trim(),
-      assets: Number(newAssets) || 0,
-      liabilities: Number(newLiabilities) || 0,
+      assets,
+      liabilities,
       note: newNote.trim(),
     });
 
@@ -56,14 +64,6 @@ export default function Spreadsheet({ records, onAdd, onUpdate, onDelete }: Prop
     setNewAssets('');
     setNewLiabilities('');
     setNewNote('');
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('zh-TW', {
-      style: 'currency',
-      currency: 'TWD',
-      maximumFractionDigits: 0
-    }).format(amount);
   };
 
   return (
@@ -107,7 +107,7 @@ export default function Spreadsheet({ records, onAdd, onUpdate, onDelete }: Prop
                 />
                 <Tooltip 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}
-                  formatter={(value: number) => formatCurrency(value)}
+                  formatter={(value: number) => formatMoney(value)}
                   labelStyle={{ color: '#5C5248', fontWeight: 'bold', marginBottom: '8px' }}
                 />
                 <Area 
@@ -244,7 +244,7 @@ export default function Spreadsheet({ records, onAdd, onUpdate, onDelete }: Prop
                            />
                         </td>
                         <td className="py-3 px-4 text-right font-black text-sm text-[#5C5248] font-mono">
-                          {formatCurrency(netWorth)}
+                          {formatMoney(netWorth)}
                         </td>
                         <td className="py-3 px-4 text-sm text-[#82786D]">
                            <input 

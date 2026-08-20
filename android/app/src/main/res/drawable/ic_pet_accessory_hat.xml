@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lv5 cosmetic: a small round hat. Cosmetics are earned by recording
+     habits only — never by spending less. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M33,29 C33,20 45,15 54,15 C63,15 75,20 75,29 Z"
+        android:fillColor="#87A2B4" />
+    <path
+        android:pathData="M28,30 L80,30 L80,34 L28,34 Z"
+        android:fillColor="#6E8798" />
+</vector>

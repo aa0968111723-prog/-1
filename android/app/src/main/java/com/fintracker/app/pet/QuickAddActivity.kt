@@ -2,6 +2,7 @@ package com.fintracker.app.pet
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.view.HapticFeedbackConstants
@@ -42,6 +43,10 @@ class QuickAddActivity : AppCompatActivity() {
     private var selectedChip: PetSharedConfigCore.Chip? = null
     private var selectedPaymentId: String = "cash"
     private var parsedPaymentOverride: String? = null
+    /** Set when the parser found 昨天/8-17 etc.; otherwise the entry is today's. */
+    private var parsedDateKey: String? = null
+    /** How this entry was actually captured, recorded on the outbox row. */
+    private var entrySource: String = "pet_quick_add"
     private val chipViews = mutableMapOf<PetSharedConfigCore.Chip, View>()
     private val paymentViews = mutableMapOf<String, TextView>()
 
@@ -55,11 +60,13 @@ class QuickAddActivity : AppCompatActivity() {
     private lateinit var undoBar: View
 
     private var lastSavedId: String? = null
+    private var awaitingVoice = false
     private val finishRunnable = Runnable { finish() }
 
     private val voiceLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
+        awaitingVoice = false
         val spoken = result.data
             ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             ?.firstOrNull()
@@ -148,6 +155,44 @@ class QuickAddActivity : AppCompatActivity() {
                 imm.showSoftInput(amountInput, InputMethodManager.SHOW_IMPLICIT)
             }
         }
+    }
+
+    /**
+     * The pet overlay floats above this sheet and stays tappable, so a second
+     * tap re-launches us. launchMode is singleTop, so that arrives here rather
+     * than in onCreate, and without this the new intent's 收入/支出 choice and
+     * 語音 flag would be silently dropped.
+     *
+     * The platform pauses a resumed activity before delivering a new intent,
+     * and onPause() below finishes this sheet — so in the common case we are
+     * already finishing by the time we get here and must not re-arm a sheet
+     * that is about to be destroyed (least of all launch the recognizer from
+     * it). The second tap then simply dismisses, and the next one opens a
+     * fresh sheet with the right extras.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (isFinishing) return
+        undoBar.removeCallbacks(finishRunnable)
+        undoBar.visibility = View.GONE
+        sheet.visibility = View.VISIBLE
+        // The undo window for the previous entry is over, and this is a fresh
+        // request: start from a clean draft rather than the last one's leftovers.
+        lastSavedId = null
+        clearDraft()
+        setType(intent.getStringExtra(EXTRA_TYPE) ?: type)
+        if (intent.getBooleanExtra(EXTRA_VOICE, false)) startVoiceInput() else amountInput.requestFocus()
+    }
+
+    /**
+     * Dismiss when the user leaves (Home, another app) so no invisible sheet
+     * lingers in its own task. Deliberately NOT android:noHistory, which would
+     * also kill us while the speech recognizer is in front and lose the result.
+     */
+    override fun onPause() {
+        super.onPause()
+        if (!awaitingVoice && !isFinishing && !isChangingConfigurations) finish()
     }
 
     override fun onDestroy() {
@@ -294,8 +339,10 @@ class QuickAddActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
             putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.pet_nl_hint))
         }
+        awaitingVoice = true
         runCatching { voiceLauncher.launch(intent) }
             .onFailure {
+                awaitingVoice = false
                 Toast.makeText(this, getString(R.string.pet_voice_unavailable), Toast.LENGTH_SHORT).show()
             }
     }
@@ -319,10 +366,19 @@ class QuickAddActivity : AppCompatActivity() {
             parsedPaymentOverride = it
             selectPayment(it)
         }
-        val chip = chipViews.keys.firstOrNull { it.categoryId == parsed.categoryId && it.note.isEmpty() }
+        parsedDateKey = parsed.dateKey
+        entrySource = if (fromVoice) "pet_voice" else "pet_nl"
+        val chip = if (parsed.categoryId != null) {
+            chipViews.keys.firstOrNull { it.categoryId == parsed.categoryId && it.note.isEmpty() }
+        } else null
         if (chip != null) {
             selectedChip = chip
             chipViews.forEach { (c, v) -> v.isSelected = c == chip }
+        } else {
+            // Never guess a category: leave it unselected and say so.
+            selectedChip = null
+            chipViews.forEach { (_, v) -> v.isSelected = false }
+            Toast.makeText(this, getString(R.string.pet_category_required), Toast.LENGTH_SHORT).show()
         }
         if (fromVoice) {
             findViewById<View>(R.id.more_section).visibility = View.VISIBLE
@@ -349,7 +405,9 @@ class QuickAddActivity : AppCompatActivity() {
             return
         }
         val note = noteInput.text?.toString()?.trim().orEmpty().ifEmpty { resolvedChip.note }
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        // Device-local calendar date (SimpleDateFormat uses the default zone),
+        // or the date the parser recognised (昨天 / 8-17).
+        val today = parsedDateKey ?: SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val tx = PendingTransactionCodec.PendingTransaction(
             id = UUID.randomUUID().toString(),
             type = type,
@@ -359,14 +417,32 @@ class QuickAddActivity : AppCompatActivity() {
             note = note,
             paymentMethod = selectedPaymentId,
             createdAt = System.currentTimeMillis(),
-            source = if (parsedPaymentOverride != null) "pet_voice" else "pet_quick_add",
+            source = entrySource,
         )
         // Durable outbox write first — this IS the record until the web acks.
-        PendingTransactionQueue.add(prefs.prefs, tx)
+        // Success is only reported if the entry is provably on disk.
+        val persisted = PendingTransactionQueue.add(prefs.prefs, tx)
+        if (!persisted) {
+            // Keep every field the user typed so they can simply tap again.
+            Toast.makeText(this, getString(R.string.pet_save_failed), Toast.LENGTH_LONG).show()
+            if (FloatingPetService.running) {
+                runCatching {
+                    startService(
+                        Intent(this, FloatingPetService::class.java)
+                            .setAction(FloatingPetService.ACTION_SHOW_ERROR)
+                            .putExtra(FloatingPetService.EXTRA_MESSAGE, getString(R.string.pet_save_failed_bubble)),
+                    )
+                }
+            }
+            return
+        }
         prefs.lastPaymentMethod = selectedPaymentId
         lastSavedId = tx.id
 
-        window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        window.decorView.performHapticFeedback(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM
+            else HapticFeedbackConstants.VIRTUAL_KEY,
+        )
 
         // Tell the WebView (if alive) to drain immediately, and let the pet celebrate.
         PetActionBridge.emit(PetActionBridge.EVENT_TRANSACTION_QUEUED)
@@ -404,8 +480,22 @@ class QuickAddActivity : AppCompatActivity() {
         PetActionBridge.emit(PetActionBridge.EVENT_TRANSACTION_UNDONE, id)
         undoBar.visibility = View.GONE
         sheet.visibility = View.VISIBLE
-        amountInput.setText("")
+        clearDraft()
         amountInput.requestFocus()
+    }
+
+    /**
+     * Everything that described one entry: the fields the user typed and the
+     * values the parser derived from them. A parsed 昨天/8-17 or 刷卡 belongs to
+     * that entry alone and must never carry over into the next one.
+     */
+    private fun clearDraft() {
+        amountInput.setText("")
+        noteInput.setText("")
+        nlInput.setText("")
+        parsedDateKey = null
+        parsedPaymentOverride = null
+        entrySource = "pet_quick_add"
     }
 
     private fun formatAmount(v: Double): String =

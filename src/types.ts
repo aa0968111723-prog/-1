@@ -7,9 +7,17 @@ export interface BudgetConfig {
   alertThreshold: number; // Percentage 0-100
 }
 
-export type PaymentMethod = 'cash' | 'credit' | 'bank' | 'mobile';
+/** The four ids every existing ledger already contains. */
+export type LegacyPaymentMethod = 'cash' | 'credit' | 'bank' | 'mobile';
 
-export const PAYMENT_METHODS: Record<PaymentMethod, string> = {
+/**
+ * Payment method id. The legacy four keep autocomplete; the widened string
+ * lets the registry add instruments like 悠遊卡 / LINE Pay without a schema
+ * migration (stored values were always plain strings).
+ */
+export type PaymentMethod = LegacyPaymentMethod | (string & {});
+
+export const PAYMENT_METHODS: Record<LegacyPaymentMethod, string> = {
   cash: '現金',
   credit: '信用卡',
   bank: '銀行轉帳',
@@ -20,12 +28,31 @@ export interface Transaction {
   id: string;
   type: TransactionType;
   amount: number;
+  /** Stored as the zh-TW label (legacy shape); see categoryCatalog for the stable id. */
   category: string;
+  /** Local calendar date key, YYYY-MM-DD — always produced by getLocalDateKey. */
   date: string;
   note: string;
   paymentMethod?: PaymentMethod;
   linkedDebtId?: string;
   linkedGoalId?: string;
+
+  // --- optional metadata; all additive so existing ledgers stay valid ---
+  /** Stable category id captured at write time (labels can be renamed later). */
+  categoryId?: string;
+  /** Where the entry came from: 'web' | 'pet_quick_add' | 'pet_voice' | 'recurring'. */
+  source?: string;
+  /** Creation instant (ISO); the `date` field remains the accounting date. */
+  createdAt?: string;
+  /** Reserved for future multi-currency; absent means TWD. */
+  currency?: string;
+  /**
+   * How much was ACTUALLY applied to the linked debt/goal. Balances clamp at
+   * zero, so without this a delete could not restore the previous balance
+   * exactly. Absent on legacy rows — those fall back to `amount`.
+   */
+  linkedDebtApplied?: number;
+  linkedGoalApplied?: number;
 }
 
 export interface RecurringTransaction {

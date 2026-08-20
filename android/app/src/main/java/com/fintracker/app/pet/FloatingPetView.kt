@@ -38,8 +38,7 @@ class FloatingPetView(
 
     private var downX = 0f
     private var downY = 0f
-    private var lastX = 0f
-    private var lastY = 0f
+    private val drag = DragAccumulator()
     private var dragging = false
     private var longPressFired = false
     private val longPressRunnable = Runnable {
@@ -63,8 +62,7 @@ class FloatingPetView(
             MotionEvent.ACTION_DOWN -> {
                 downX = event.rawX
                 downY = event.rawY
-                lastX = event.rawX
-                lastY = event.rawY
+                drag.reset(event.rawX, event.rawY)
                 dragging = false
                 longPressFired = false
                 postDelayed(longPressRunnable, longPressTimeout)
@@ -79,12 +77,15 @@ class FloatingPetView(
                     callback.onDragStart()
                 }
                 if (dragging) {
-                    val dx = (event.rawX - lastX).toInt()
-                    val dy = (event.rawY - lastY).toInt()
-                    if (dx != 0 || dy != 0) callback.onDragBy(dx, dy)
+                    drag.consume(event.rawX, event.rawY)?.let { (dx, dy) ->
+                        callback.onDragBy(dx, dy)
+                    }
+                } else {
+                    // Below the slop the pet has not moved yet, so keep the
+                    // reference at the finger: crossing the slop must not make
+                    // the pet jump by the slop distance.
+                    drag.reset(event.rawX, event.rawY)
                 }
-                lastX = event.rawX
-                lastY = event.rawY
                 return true
             }
             MotionEvent.ACTION_UP -> {
