@@ -420,6 +420,77 @@ export class FinanceAnalyticsEngine {
     return subtractAmounts(income, expense) / income;
   }
 
+  /**
+   * Lifetime totals. Dashboard shows these as the headline balance, and they
+   * are NOT a period query — "本月結餘" and "總結餘" are different questions
+   * and conflating them is how a dashboard shows a number nobody can reconcile.
+   */
+  getAllTimeTotals(): { income: number; expense: number; balance: number; transactionCount: number } {
+    const income = sumAmounts(this.txs.filter(t => t?.type === 'income').map(t => t.amount));
+    const expense = sumAmounts(this.txs.filter(t => t?.type === 'expense').map(t => t.amount));
+    return { income, expense, balance: subtractAmounts(income, expense), transactionCount: this.txs.length };
+  }
+
+  /** Expense share by category over the whole ledger, largest first. */
+  getAllTimeCategoryTotals(): Array<{ name: string; value: number }> {
+    const per = new Map<string, number[]>();
+    for (const t of this.txs) {
+      if (t?.type !== 'expense') continue;
+      const id = t.categoryId ?? categoryIdForStored(t.category);
+      const bucket = per.get(id);
+      if (bucket) bucket.push(t.amount);
+      else per.set(id, [t.amount]);
+    }
+    return Array.from(per.entries())
+      .map(([id, amounts]) => ({ name: labelForCategoryId(id), value: sumAmounts(amounts) }))
+      .sort((a, b) => b.value - a.value);
+  }
+
+  /**
+   * The last [months] calendar months, oldest first, including months with no
+   * activity — a trend chart that silently omits empty months misrepresents
+   * the shape of the trend.
+   */
+  getMonthlyTrend(months = 6): Array<{ name: string; income: number; expense: number }> {
+    const out: Array<{ name: string; income: number; expense: number }> = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(this.now.getFullYear(), this.now.getMonth() - i, 1);
+      const range: PeriodRange = {
+        kind: 'month',
+        startKey: getMonthStartKey(getLocalDateKey(d)),
+        endKey: getMonthEndKey(getLocalDateKey(d)),
+        label: '',
+      };
+      const t = this.totalsFor(range);
+      out.push({ name: range.startKey.slice(0, 7), income: t.income, expense: t.expense });
+    }
+    return out;
+  }
+
+  /** Mean daily spend so far this month — divided by days ELAPSED, not 30. */
+  getAverageDailySpend(): number {
+    const spent = this.totalsFor(this.monthRange()).expense;
+    const dayOfMonth = this.now.getDate();
+    return dayOfMonth > 0 ? spent / dayOfMonth : 0;
+  }
+
+  /** The largest individual expenses this month. */
+  getTopExpenses(limit = 3): Transaction[] {
+    const range = this.monthRange();
+    return this.getTransactionsByRange(range.startKey, range.endKey)
+      .filter(t => t.type === 'expense')
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, limit);
+  }
+
+  /** Recurring rules falling due within [days]. */
+  getUpcomingRecurring(days = 3): Array<RecurringTransaction & { daysLeft: number }> {
+    return this.recurring
+      .map(rt => ({ ...rt, daysLeft: daysBetween(this.todayKey, rt.nextDate) }))
+      .filter(rt => rt.daysLeft >= 0 && rt.daysLeft <= days)
+      .sort((a, b) => a.daysLeft - b.daysLeft);
+  }
+
   // ---- the whole picture ----
 
   analyze(kind: PeriodKind = 'month'): AnalysisResult {
