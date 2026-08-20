@@ -54,6 +54,28 @@ function safeCategoryLabel(stored: string): string {
   return CATALOG_LABELS.has(stored) ? stored : '自訂分類';
 }
 
+/**
+ * Pseudonymises user-defined category labels, consistently within one payload.
+ *
+ * Built-in labels come from shared/pet-shared-config.json — a closed set, safe
+ * to send. Anything else is a name the user typed, and 「心理諮商」 is no less
+ * personal for being a category rather than a note. The same custom category
+ * must get the same stand-in everywhere in the payload, or the model will read
+ * one category as two.
+ */
+function categoryRedactor(includeUserNames: boolean): (label: string) => string {
+  if (includeUserNames) return label => label;
+  const assigned = new Map<string, string>();
+  return label => {
+    if (CATALOG_LABELS.has(label)) return label;
+    const existing = assigned.get(label);
+    if (existing) return existing;
+    const name = pseudonym('自訂分類', assigned.size);
+    assigned.set(label, name);
+    return name;
+  };
+}
+
 export interface ContextOptions {
   /**
    * Send the names the user typed (goal names, debt names) instead of
@@ -138,6 +160,7 @@ export function buildFinanceContext(
   options: ContextOptions = {},
 ): FinanceContext {
   const includeUserNames = options.includeUserNames === true;
+  const safeCategory = categoryRedactor(includeUserNames);
   const engine = new FinanceAnalyticsEngine(input, now);
   const month = engine.getSummary('month');
   const breakdown = engine.getCategoryBreakdown('month', 8);
@@ -154,14 +177,14 @@ export function buildFinanceContext(
     lastMonth: period('上個月', month.previous),
     expenseChangePercent: month.expenseChangePercent === null ? null : round1(month.expenseChangePercent),
     categoryChanges: breakdown.map(c => ({
-      label: c.label,
+      label: safeCategory(c.label),
       amount: c.amount,
       previousAmount: c.previousAmount,
       changePercent: c.changePercent === null ? null : round1(c.changePercent),
       share: round1(c.share * 100),
     })),
     budgets: engine.getBudgetStatus('month').map(b => ({
-      label: b.label,
+      label: safeCategory(b.label),
       budget: b.budget,
       spent: b.spent,
       usagePercent: round1(b.usage * 100),
@@ -229,11 +252,22 @@ export class FinanceFunctions {
   }
 
   getCategoryBreakdown(period: PeriodKind = 'month', limit = 10): CategoryBreakdownItem[] {
-    return this.engine.getCategoryBreakdown(period, limit);
+    const safe = categoryRedactor(this.includeUserNames);
+    return this.engine.getCategoryBreakdown(period, limit).map(c => ({
+      ...c,
+      categoryId: CATALOG_LABELS.has(c.label) ? c.categoryId : '',
+      label: safe(c.label),
+    }));
   }
 
   getBudgetStatus(): BudgetUsageItem[] {
-    return this.engine.getBudgetStatus('month');
+    const safe = categoryRedactor(this.includeUserNames);
+    return this.engine.getBudgetStatus('month').map(b => ({
+      ...b,
+      // A custom category's id IS its label, so the id leaks the same text.
+      categoryId: CATALOG_LABELS.has(b.label) ? b.categoryId : '',
+      label: safe(b.label),
+    }));
   }
 
   /**

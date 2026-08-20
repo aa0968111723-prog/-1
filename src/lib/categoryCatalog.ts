@@ -48,14 +48,29 @@ const byLabel = new Map<string, CategoryDef>(ALL_DEFS.map(d => [d.label, d]));
 
 export const LEGACY_ALIASES: Record<string, string> = sharedConfig.legacyLabelAliases;
 
-/** Resolves a stored category value (label, legacy label, or id) to a stable id. */
+/**
+ * Resolves a stored category value (label, legacy label, or id) to a stable id.
+ *
+ * An unrecognised value becomes its OWN id rather than collapsing into
+ * 'other_expense'. It used to collapse, which merged every user-defined
+ * category into one bucket: 心理諮商 1000 + 寵物用品 500 + a real 其他支出 300
+ * came out of getCategoryBreakdown as a single 其他支出 1800, and a budget set
+ * on 心理諮商 was charged for all three. The user could see their custom
+ * categories everywhere in the UI (describeCategory resolves them through the
+ * registry) and yet never in the analysis.
+ *
+ * Passing the value through keeps each one distinct and self-labelling, with
+ * no dependency from this module on the storage-backed registry — which is
+ * what made the collapse hard to fix before. Empty and whitespace-only values
+ * still bucket, since they are corruption rather than a category.
+ */
 export function categoryIdForStored(stored: string): string {
   if (byId.has(stored)) return stored;
   const direct = byLabel.get(stored);
   if (direct) return direct.id;
   const alias = LEGACY_ALIASES[stored];
   if (alias) return alias;
-  return 'other_expense';
+  return stored.trim() === '' ? 'other_expense' : stored;
 }
 
 /** The label to persist/display for a category id (falls back to the id itself). */

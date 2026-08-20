@@ -183,6 +183,34 @@ describe('names the user typed do not leave the device by default', () => {
     expect(fns.getDebtSummary().highestRate?.name).toBe('負債 1');
   });
 
+  it('pseudonymises a user-defined category label consistently across the payload', () => {
+    // Un-collapsing custom categories (so the analysis can tell them apart)
+    // put the user's own words back into the AI payload through two more
+    // fields. The same category must get the same stand-in in both, or the
+    // model reads one category as two.
+    const ctx = buildFinanceContext(sensitiveLedger, NOW, {} );
+    expect(ctx.categoryChanges.map(c => c.label)).toContain('自訂分類 1');
+    expect(ctx.categoryChanges.map(c => c.label)).toContain('餐飲美食');
+    expect(JSON.stringify(ctx)).not.toContain(PRIVATE_NAMES.category);
+  });
+
+  it('keeps custom category budgets pseudonymous too', () => {
+    const withBudget = {
+      ...sensitiveLedger,
+      budgets: { [PRIVATE_NAMES.category]: { amount: 5000, alertEnabled: true, alertThreshold: 80 } } as Record<string, BudgetConfig>,
+    };
+    const ctx = buildFinanceContext(withBudget, NOW);
+    expect(ctx.budgets[0].label).toBe('自訂分類 1');
+    expect(ctx.categoryChanges.find(c => c.amount === 2400)?.label).toBe('自訂分類 1');
+    expect(JSON.stringify(ctx)).not.toContain(PRIVATE_NAMES.category);
+  });
+
+  it('drops the category id as well, because a custom id IS the label', () => {
+    const fns = new FinanceFunctions(sensitiveLedger, NOW);
+    const serialised = JSON.stringify(fns.getCategoryBreakdown('month'));
+    expect(serialised).not.toContain(PRIVATE_NAMES.category);
+  });
+
   it('replaces a user-defined category label in row lookups', () => {
     const fns = new FinanceFunctions(sensitiveLedger, NOW);
     const rows = fns.getTransactionsByRange('2026-08-01', '2026-08-31');
