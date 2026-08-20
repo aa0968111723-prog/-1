@@ -49,6 +49,14 @@ const byLabel = new Map<string, CategoryDef>(ALL_DEFS.map(d => [d.label, d]));
 export const LEGACY_ALIASES: Record<string, string> = sharedConfig.legacyLabelAliases;
 
 /**
+ * Prefix of a user-defined category's id.
+ *
+ * Declared here, in the dependency-free module, because the analytics engine
+ * has to recognise one without importing the storage-backed registry.
+ */
+export const CUSTOM_CATEGORY_PREFIX = 'custom:';
+
+/**
  * Resolves a stored category value (label, legacy label, or id) to a stable id.
  *
  * An unrecognised value becomes its OWN id rather than collapsing into

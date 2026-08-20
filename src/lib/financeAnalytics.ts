@@ -40,7 +40,30 @@ import {
   daysBetween,
 } from './datetime';
 import { sumAmounts, subtractAmounts } from './money';
-import { categoryIdForStored, labelForCategoryId, emojiForCategory } from './categoryCatalog';
+import {
+  categoryIdForStored,
+  labelForCategoryId,
+  emojiForCategory,
+  CUSTOM_CATEGORY_PREFIX,
+} from './categoryCatalog';
+
+/**
+ * The one bucket key for a transaction's category.
+ *
+ * A user-defined category has two identities in stored data: the zh-TW label,
+ * which every write path records (see categoryRegistry's docblock), and a
+ * `custom:<slug>` id that only the pinned-quick-chip path attaches. Keying on
+ * whichever happens to be present split one category into two rows — 寵物 via
+ * a chip and 寵物 via the full form landed in separate buckets, and the chip
+ * one rendered as the literal string "custom:寵物".
+ *
+ * The label wins, because it is the identity every path agrees on. Built-in
+ * ids are taken as given: they are a closed set and never ambiguous.
+ */
+function bucketIdFor(t: Transaction): string {
+  if (t.categoryId && !t.categoryId.startsWith(CUSTOM_CATEGORY_PREFIX)) return t.categoryId;
+  return categoryIdForStored(t.category);
+}
 
 // ---------------------------------------------------------------- contracts
 
@@ -358,7 +381,7 @@ export class FinanceAnalyticsEngine {
     const perCategory = new Map<string, number[]>();
     for (const t of this.getTransactionsByRange(range.startKey, range.endKey)) {
       if (t.type !== 'expense') continue;
-      const id = t.categoryId ?? categoryIdForStored(t.category);
+      const id = bucketIdFor(t);
       const bucket = perCategory.get(id);
       if (bucket) bucket.push(t.amount);
       else perCategory.set(id, [t.amount]);
@@ -523,7 +546,7 @@ export class FinanceAnalyticsEngine {
     const per = new Map<string, number[]>();
     for (const t of this.txs) {
       if (t?.type !== 'expense') continue;
-      const id = t.categoryId ?? categoryIdForStored(t.category);
+      const id = bucketIdFor(t);
       const bucket = per.get(id);
       if (bucket) bucket.push(t.amount);
       else per.set(id, [t.amount]);

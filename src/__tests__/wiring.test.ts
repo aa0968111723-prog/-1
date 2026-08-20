@@ -144,3 +144,22 @@ describe('App persists through the repository, not only to the safety net', () =
     });
   }
 });
+
+/*
+ * Android Auto Backup copies app-private data — including the WebView storage
+ * holding the entire ledger — to the user's Google Drive, and adb backup pulls
+ * it off an unlocked device. For a local-first finance app whose notes say
+ * things like 「離婚律師諮詢」, that is the ledger leaving the device without
+ * anyone choosing it. Export and cloud sync are the deliberate routes.
+ */
+const manifest = readFileSync(
+  resolve(process.cwd(), 'android/app/src/main/AndroidManifest.xml'),
+  'utf8',
+);
+
+describe('the Android app does not hand the ledger to Google Drive', () => {
+  it('has allowBackup off', () => {
+    expect(manifest).toMatch(/android:allowBackup="false"/);
+    expect(manifest).not.toMatch(/android:allowBackup="true"/);
+  });
+});

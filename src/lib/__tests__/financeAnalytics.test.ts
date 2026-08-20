@@ -325,6 +325,51 @@ describe('categories the user invented are still categories', () => {
   });
 });
 
+describe('one category, one bucket, whichever path wrote the row', () => {
+  it('does not split a custom category by how it was recorded', () => {
+    // A pinned quick chip attaches categoryId 'custom:寵物'; the full form
+    // records the label only. Keying on whichever is present produced two
+    // rows for one category, and the chip one rendered as the literal string
+    // "custom:寵物" in the chart legend.
+    const viaChip = {
+      id: 'a', type: 'expense' as const, amount: 1200, category: '寵物',
+      categoryId: 'custom:寵物', date: '2026-08-10', note: '',
+    };
+    const viaForm = {
+      id: 'b', type: 'expense' as const, amount: 800, category: '寵物',
+      date: '2026-08-11', note: '',
+    };
+    const rows = engine({ transactions: [viaChip as Transaction, viaForm] })
+      .getCategoryBreakdown('month');
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].label).toBe('寵物');
+    expect(rows[0].amount).toBe(2000);
+  });
+
+  it('leaves built-in ids alone', () => {
+    const withId = {
+      id: 'a', type: 'expense' as const, amount: 100, category: '餐飲美食',
+      categoryId: 'food', date: '2026-08-10', note: '',
+    };
+    const rows = engine({ transactions: [withId as Transaction] }).getCategoryBreakdown('month');
+    expect(rows[0].categoryId).toBe('food');
+    expect(rows[0].label).toBe('餐飲美食');
+  });
+
+  it('charges a budget once for a category recorded both ways', () => {
+    const rows = engine({
+      transactions: [
+        { id: 'a', type: 'expense', amount: 1200, category: '寵物', categoryId: 'custom:寵物', date: '2026-08-10', note: '' } as Transaction,
+        { id: 'b', type: 'expense', amount: 800, category: '寵物', date: '2026-08-11', note: '' },
+      ],
+      budgets: { 寵物: { amount: 3000, alertEnabled: true, alertThreshold: 80 } },
+    }).getBudgetStatus('month');
+
+    expect(rows.find(b => b.label === '寵物')?.spent).toBe(2000);
+  });
+});
+
 describe('two budget keys for one category', () => {
   it('counts the spend once and keeps the canonical key', () => {
     // 'Loan Repayments' is a legacy alias of 負債償還. A ledger carrying both

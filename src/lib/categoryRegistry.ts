@@ -11,7 +11,7 @@
  */
 
 import { TransactionType } from '../types';
-import { CATEGORY_DEFS, CategoryDef, categoryIdForStored, labelForCategoryId, LEGACY_ALIASES } from './categoryCatalog';
+import { CATEGORY_DEFS, CategoryDef, categoryIdForStored, labelForCategoryId, LEGACY_ALIASES, CUSTOM_CATEGORY_PREFIX } from './categoryCatalog';
 import { STORAGE_KEYS, loadJSON, saveJSON } from './storage';
 
 export interface CustomCategory extends CategoryDef {
@@ -21,7 +21,7 @@ export interface CustomCategory extends CategoryDef {
   createdAt: string;
 }
 
-export const CUSTOM_CATEGORY_PREFIX = 'custom:';
+export { CUSTOM_CATEGORY_PREFIX };
 export const MAX_CUSTOM_CATEGORIES = 40;
 
 export function loadCustomCategories(storage: Storage | undefined = globalThis.localStorage): CustomCategory[] {
