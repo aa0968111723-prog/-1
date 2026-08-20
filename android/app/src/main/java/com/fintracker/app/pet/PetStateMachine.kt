@@ -81,11 +81,24 @@ class PetStateMachine(private val clock: () -> Long = { System.currentTimeMillis
             PetState.THINKING to 78,
             PetState.LISTENING to 76,
             PetState.DRAGGING to 70,
+            // Follow-finger is a live user interaction — same band as dragging.
+            PetState.FOLLOW_FINGER to 70,
+            PetState.SURPRISED to 60,
             PetState.EDGE_PEEK to 50,
+            PetState.EDGE_REST to 50,
             PetState.CAUTION to 40,
+            PetState.REMINDER to 40,
             PetState.HAPPY to 35,
+            PetState.SHY to 32,
             PetState.WAKE to 30,
+            PetState.GREET to 28,
             PetState.SLEEP to 25,
+            PetState.DEEP_SLEEP to 25,
+            // Autonomous behaviours sit above idle decorations but below
+            // everything a user or the finance flow triggers (spec §39).
+            PetState.WALK to 14,
+            PetState.STRETCH to 14,
+            PetState.CURIOUS to 12,
             PetState.BLINK to 10,
             PetState.LOOK to 10,
             PetState.IDLE to 10,
@@ -117,4 +130,26 @@ object PetState {
     const val SLEEP = "sleepy"
     const val WAKE = "wake"
     const val ERROR = "error"
+
+    // --- V2: autonomous life + richer interaction -------------------------
+    /** Short self-initiated stroll (never while the user is interacting). */
+    const val WALK = "walk"
+    /** Wave hello (screen-on greeting / settings preview). */
+    const val GREET = "wave"
+    /** Morning stretch. */
+    const val STRETCH = "stretch"
+    /** Head-tilt curiosity while looking around. */
+    const val CURIOUS = "curious"
+    /** Bashful reaction (e.g. after a long stare). */
+    const val SHY = "shy"
+    /** Picked-up / unexpected-poke reaction. */
+    const val SURPRISED = "surprised"
+    /** Trailing the user's finger with a soft offset (not a rigid stick). */
+    const val FOLLOW_FINGER = "followFinger"
+    /** Resting half-tucked at the screen edge (deliberate, not collapsed). */
+    const val EDGE_REST = "edgeRest"
+    /** Fully asleep (night / long idle); [SLEEP] stays the drowsy face. */
+    const val DEEP_SLEEP = "sleep"
+    /** Gentle nudge (budget approaching / record reminder). Never angry. */
+    const val REMINDER = "reminder"
 }

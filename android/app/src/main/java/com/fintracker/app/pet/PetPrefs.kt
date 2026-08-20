@@ -94,6 +94,23 @@ data class PetSettingsSnapshot(
     val petName: String = "小財",
     /** "100" | "85" | "70" — never lower, the pet must stay tappable. */
     val opacity: String = "100",
+    // --- V2 interaction toggles (小財互動頁). Defaults keep old clients lively but polite. ---
+    /** quiet | natural | lively (spec §九). */
+    val activityLevel: String = "natural",
+    /** Master switch for small self-initiated strolls (spec §五). */
+    val autonomousMovement: Boolean = true,
+    /** Trailing the finger while pressed (spec §十). */
+    val followFinger: Boolean = true,
+    /** Occasional screen-on wave (spec §十三). */
+    val greetings: Boolean = true,
+    /** Gentle record reminders / budget nudges (spec §十八). */
+    val reminders: Boolean = true,
+    /** Night / long-idle sleep (spec §十四). */
+    val sleepMode: Boolean = true,
+    /** Quick add opens with this type ("expense" | "income"). */
+    val defaultType: String = "expense",
+    /** Tiny confirmation sounds. OFF by default (spec §四十七). */
+    val soundEffects: Boolean = false,
 ) {
     fun sizeDp(): Int = when (size) {
         "small" -> 56
@@ -125,6 +142,14 @@ data class PetSettingsSnapshot(
                 showAmounts = o.optBoolean("showAmounts", false),
                 petName = o.optString("petName", "小財"),
                 opacity = o.optString("opacity", "100"),
+                activityLevel = o.optString("activityLevel", "natural"),
+                autonomousMovement = o.optBoolean("autonomousMovement", true),
+                followFinger = o.optBoolean("followFinger", true),
+                greetings = o.optBoolean("greetings", true),
+                reminders = o.optBoolean("reminders", true),
+                sleepMode = o.optBoolean("sleepMode", true),
+                defaultType = o.optString("defaultType", "expense"),
+                soundEffects = o.optBoolean("soundEffects", false),
             )
         } catch (e: Exception) {
             PetSettingsSnapshot()

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Averted eyes, extra-large blush. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:name="blush">
+        <path android:pathData="M19.8,62 a11,8 0 1,0 22,0 a11,8 0 1,0 -22,0" android:fillColor="#E0FF8B96" />
+        <path android:pathData="M66.2,62 a11,8 0 1,0 22,0 a11,8 0 1,0 -22,0" android:fillColor="#E0FF8B96" />
+        <path android:pathData="M23,62.2 a7.4,5.2 0 1,0 14.8,0 a7.4,5.2 0 1,0 -14.8,0" android:fillColor="#88FFB0B0" />
+        <path android:pathData="M70.2,62.2 a7.4,5.2 0 1,0 14.8,0 a7.4,5.2 0 1,0 -14.8,0" android:fillColor="#88FFB0B0" />
+    </group>
+
+    <group android:name="eyes">
+        <path
+            android:name="eye_left"
+            android:pathData="M38.6,51.6 a5.1,5.4 0 1,0 10.2,0 a5.1,5.4 0 1,0 -10.2,0">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="46"
+                    android:centerY="53.2"
+                    android:gradientRadius="6.4">
+                    <item android:offset="0" android:color="#FF5C4030" />
+                    <item android:offset="1" android:color="#FF241810" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:name="eye_right"
+            android:pathData="M65.6,51.6 a5.1,5.4 0 1,0 10.2,0 a5.1,5.4 0 1,0 -10.2,0">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="73"
+                    android:centerY="53.2"
+                    android:gradientRadius="6.4">
+                    <item android:offset="0" android:color="#FF5C4030" />
+                    <item android:offset="1" android:color="#FF241810" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M43.2,49.6 a1.25,1.35 0 1,0 2.5,0 a1.25,1.35 0 1,0 -2.5,0" android:fillColor="#FFFFFFFF" />
+        <path android:pathData="M47,54.2 a0.7,0.75 0 1,0 1.4,0 a0.7,0.75 0 1,0 -1.4,0" android:fillColor="#CCFFFFFF" />
+        <path android:pathData="M70.2,49.6 a1.25,1.35 0 1,0 2.5,0 a1.25,1.35 0 1,0 -2.5,0" android:fillColor="#FFFFFFFF" />
+        <path android:pathData="M74,54.2 a0.7,0.75 0 1,0 1.4,0 a0.7,0.75 0 1,0 -1.4,0" android:fillColor="#CCFFFFFF" />
+    </group>
+
+    <group android:name="beak">
+        <path
+            android:pathData="M50.6,57.8 C52,55.8 57.2,55.8 58.4,58 C58,59.8 55.4,62.8 54.2,63.2 C53,62.6 50.2,59.6 50.6,57.8 Z"
+            android:fillColor="#F2954B" />
+        <path android:pathData="M52.2,57.4 a1.25,0.8 0 1,0 2.5,0 a1.25,0.8 0 1,0 -2.5,0" android:fillColor="#80FFE6C0" />
+    </group>
+</vector>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tiny chick wings, same 108 viewport as the body. Drawn to sit behind /
+  beside the body; inner halves tuck under the silhouette. Groups are
+  pivot-friendly for a small rotation wiggle.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:name="left_wing"
+        android:pivotX="26"
+        android:pivotY="58"
+        android:rotation="0">
+        <path
+            android:name="left_wing_fill"
+            android:pathData="M28,62 C24,52 18,40 12,36 C5,31 4,42 7,50 C10,58 18,64 28,62 Z"
+            android:strokeColor="#E0AE45"
+            android:strokeWidth="1.2"
+            android:strokeLineJoin="round">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="16"
+                    android:centerY="44"
+                    android:gradientRadius="22">
+                    <item android:offset="0" android:color="#FFFFE08A" />
+                    <item android:offset="0.55" android:color="#FFF5C755" />
+                    <item android:offset="1" android:color="#FFE0AE45" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M14,42 C16,38 22,40 25,48"
+            android:strokeColor="#66FFF6DC"
+            android:strokeWidth="1.6"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+    </group>
+
+    <group
+        android:name="right_wing"
+        android:pivotX="82"
+        android:pivotY="58"
+        android:rotation="0">
+        <path
+            android:name="right_wing_fill"
+            android:pathData="M80,62 C84,52 90,40 96,36 C103,31 104,42 101,50 C98,58 90,64 80,62 Z"
+            android:strokeColor="#E0AE45"
+            android:strokeWidth="1.2"
+            android:strokeLineJoin="round">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="92"
+                    android:centerY="44"
+                    android:gradientRadius="22">
+                    <item android:offset="0" android:color="#FFFFE08A" />
+                    <item android:offset="0.55" android:color="#FFF5C755" />
+                    <item android:offset="1" android:color="#FFE0AE45" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M94,42 C92,38 86,40 83,48"
+            android:strokeColor="#66FFF6DC"
+            android:strokeWidth="1.6"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+    </group>
+</vector>

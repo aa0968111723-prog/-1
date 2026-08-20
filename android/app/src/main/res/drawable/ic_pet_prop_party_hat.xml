@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Colorful cone party hat. Distinct from the round Lv5 ic_pet_accessory_hat. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:name="party_hat"
+        android:pivotX="56"
+        android:pivotY="26"
+        android:rotation="12">
+        <path
+            android:name="brim"
+            android:pathData="M37,29 a19,4.2 0 1,0 38,0 a19,4.2 0 1,0 -38,0"
+            android:fillColor="#E58C46" />
+        <path
+            android:name="cone"
+            android:pathData="M40,29.5 C44,20 51,9.4 56,8 C61,9.4 68,20 72,29.5 Q56,33 40,29.5 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="56"
+                    android:startY="8"
+                    android:endX="56"
+                    android:endY="31">
+                    <item android:offset="0" android:color="#FFFFF3D2" />
+                    <item android:offset="0.34" android:color="#FFF2954B" />
+                    <item android:offset="0.67" android:color="#FF8FBF7F" />
+                    <item android:offset="1" android:color="#FFF2A6A0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M45.4,16.5 L66.6,16.5 L68.4,21.2 L43.6,21.2 Z"
+            android:fillColor="#66FFFFFF" />
+        <path
+            android:name="pom"
+            android:pathData="M51.8,5.4 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0"
+            android:fillColor="#F2A6A0" />
+        <path android:pathData="M53.6,4.2 a1.55,1.55 0 1,0 3.1,0 a1.55,1.55 0 1,0 -3.1,0" android:fillColor="#80FFFFFF" />
+        <path android:pathData="M49.6,7.4 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0" android:fillColor="#F2954B" />
+        <path android:pathData="M59.8,8 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0" android:fillColor="#8FBF7F" />
+    </group>
+</vector>

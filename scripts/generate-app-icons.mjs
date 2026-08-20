@@ -162,7 +162,7 @@ function createCanvas(size) {
 
 // -------------------------------------------------------------- the character
 
-const BG = '#87A2B4';       // 小財 sits on the app's action blue
+const BG = '#FFEFC9';       // V2: 柔和奶油底（spec §五十一），不再用銀行藍
 const BODY = '#FFD66B';
 const BODY_EDGE = '#E0AE45';
 const BELLY = '#FFF3D2';

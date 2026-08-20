@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Head-tilt look: eyes offset to the viewer's right, one raised brow. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:name="brows">
+        <path
+            android:pathData="M36,38.2 C40.6,34.8 47,35.4 50.4,39"
+            android:strokeColor="#B08B5E"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <path
+            android:pathData="M64.8,42.8 C69,42 75,42.4 78.4,44.6"
+            android:strokeColor="#C4A078"
+            android:strokeWidth="1.5"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+    </group>
+
+    <group android:name="eyes">
+        <path
+            android:name="eye_left"
+            android:pathData="M38.2,49 a6.3,6.9 0 1,0 12.6,0 a6.3,6.9 0 1,0 -12.6,0">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="47.2"
+                    android:centerY="50.4"
+                    android:gradientRadius="8.2">
+                    <item android:offset="0" android:color="#FF5C4030" />
+                    <item android:offset="1" android:color="#FF241810" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:name="eye_right"
+            android:pathData="M65.4,49 a6.3,6.9 0 1,0 12.6,0 a6.3,6.9 0 1,0 -12.6,0">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="74.4"
+                    android:centerY="50.4"
+                    android:gradientRadius="8.2">
+                    <item android:offset="0" android:color="#FF5C4030" />
+                    <item android:offset="1" android:color="#FF241810" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M42.6,45.8 a1.7,1.85 0 1,0 3.4,0 a1.7,1.85 0 1,0 -3.4,0" android:fillColor="#FFFFFFFF" />
+        <path android:pathData="M48.6,52.2 a0.9,1 0 1,0 1.8,0 a0.9,1 0 1,0 -1.8,0" android:fillColor="#CCFFFFFF" />
+        <path android:pathData="M69.8,45.8 a1.7,1.85 0 1,0 3.4,0 a1.7,1.85 0 1,0 -3.4,0" android:fillColor="#FFFFFFFF" />
+        <path android:pathData="M75.8,52.2 a0.9,1 0 1,0 1.8,0 a0.9,1 0 1,0 -1.8,0" android:fillColor="#CCFFFFFF" />
+    </group>
+
+    <group android:name="blush">
+        <path android:pathData="M25.2,61.4 a7.2,5.5 0 1,0 14.4,0 a7.2,5.5 0 1,0 -14.4,0" android:fillColor="#B8FF8B96" />
+        <path android:pathData="M70.4,61.4 a7.2,5.5 0 1,0 14.4,0 a7.2,5.5 0 1,0 -14.4,0" android:fillColor="#B8FF8B96" />
+    </group>
+
+    <group android:name="beak">
+        <path
+            android:pathData="M51.2,56.6 C52.8,54 59.4,54.2 60.8,56.8 C60.6,59.6 56.8,63.8 55.4,64.4 C54,63.6 50.8,59.4 51.2,56.6 Z"
+            android:fillColor="#F2954B" />
+        <path android:pathData="M53.2,56.2 a1.45,0.95 0 1,0 2.9,0 a1.45,0.95 0 1,0 -2.9,0" android:fillColor="#80FFE6C0" />
+    </group>
+</vector>

@@ -12,6 +12,11 @@
         android:width="176dp"
         android:height="176dp"
         android:gravity="center"
+        android:drawable="@drawable/ic_pet_wings" />
+    <item
+        android:width="176dp"
+        android:height="176dp"
+        android:gravity="center"
         android:drawable="@drawable/ic_pet_body" />
     <item
         android:width="176dp"

@@ -9,6 +9,8 @@ export type PetAnimationLevel = 'full' | 'simple';
 export type PetOpacity = '100' | '85' | '70';
 /** What the pet's speech bubble may reveal on screen. */
 export type PetBubbleDisplay = 'text' | 'count' | 'todaySpend' | 'budget';
+/** How lively the pet's autonomous life is (spec §九): 安靜 / 自然 / 活潑. */
+export type PetActivityLevel = 'quiet' | 'natural' | 'lively';
 
 export interface PetSettings {
   enabled: boolean;
@@ -31,6 +33,21 @@ export interface PetSettings {
   opacity: PetOpacity;
   /** Privacy: how much the bubble may say. Default reveals no numbers. */
   bubbleDisplay: PetBubbleDisplay;
+  // --- V2 互動（小財互動頁） ---
+  /** 活躍程度：安靜（幾乎只眨眼）/ 自然 / 活潑。 */
+  activityLevel: PetActivityLevel;
+  /** 自行走動：偶爾小範圍散步。 */
+  autonomousMovement: boolean;
+  /** 跟著手指：拖曳時柔軟追趕而不是硬黏。 */
+  followFinger: boolean;
+  /** 打招呼：回到螢幕時偶爾揮手。 */
+  greetings: boolean;
+  /** 提醒記帳／預算輕聲提醒（永不生氣）。 */
+  reminders: boolean;
+  /** 睡眠模式：夜間或久未互動時睡著。 */
+  sleepMode: boolean;
+  /** 小音效（啵/叮）。預設關閉。 */
+  soundEffects: boolean;
 }
 
 export const DEFAULT_PET_SETTINGS: PetSettings = {
@@ -47,6 +64,13 @@ export const DEFAULT_PET_SETTINGS: PetSettings = {
   quickAddWithoutUnlock: true,
   opacity: '100',
   bubbleDisplay: 'text',
+  activityLevel: 'natural',
+  autonomousMovement: true,
+  followFinger: true,
+  greetings: true,
+  reminders: true,
+  sleepMode: true,
+  soundEffects: false,
 };
 
 export function loadPetSettings(storage: Storage | undefined = globalThis.localStorage): PetSettings {
