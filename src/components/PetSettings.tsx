@@ -32,6 +32,7 @@ import { STORAGE_KEYS, saveJSON } from '../lib/storage';
 import { cn } from '../lib/utils';
 import { runtimeEnvironment } from '../lib/runtimeEnvironment';
 import AndroidDownloadCard from './AndroidDownloadCard';
+import AccountPanel from './AccountPanel';
 
 interface PetSettingsProps {
   settings: PetSettingsType;
@@ -560,6 +561,10 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
       </Section>
 
       {/* 資料 */}
+      <Section title="帳號與同步">
+        <AccountPanel />
+      </Section>
+
       <Section title="資料">
         <div className="flex gap-3 py-2">
           <button

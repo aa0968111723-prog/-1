@@ -46,6 +46,25 @@ insert into public.transactions (...) values (...);          -- 必須被拒
 
 結果：看得到 0 列、insert 被擋、沒有留下探測列。
 
+### Contract probe（對真實資料庫跑過）
+
+`supabase/tests/contract_probe.sql`
+
+單元測試全部打在 fake cloud 上 —— 那是測 merge 邏輯的正確方式，但也代表
+`toCloudRow()` 與真實 schema 之間的落差（欄位改名、型別被拒、主鍵放不下
+deterministic 的 recurring id）在使用者第一次真的同步之前完全看不見。
+
+這個 probe 補上那一段。它建立兩個拋棄式使用者、**在 RLS 生效的狀態下**用真正的
+寫入路徑操作，然後把自己建立的東西全部刪掉。實際跑過的結果：
+
+- client 送出的完整欄位組合被接受
+- `recurring:rule-9:2026-08-01` 這種 id 可以當主鍵寫進去（證實 TEXT 而非 UUID
+  的決定是必要的）
+- upsert on conflict 可重放
+- tombstone update 正常
+- **換成另一個 authenticated 使用者後，讀到 0 列**
+- 結束後 `rows_left = 0`、`probe_users_left = 0`
+
 ### CI 的守門
 
 `scripts/check-migrations.mjs` 會在每次 CI 檢查：任何被建立的財務表，

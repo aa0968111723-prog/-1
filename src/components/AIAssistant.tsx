@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, X, Loader2, Sparkles, Globe, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
+import { financeRepository } from '../lib/financeRepository';
+import { buildFinanceContext, buildGroundedMessage } from '../lib/financeContext';
 
 interface Message {
   role: 'user' | 'model';
@@ -14,7 +16,7 @@ export default function AIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([{
     role: 'model',
-    content: '你好！我是你的智能財務與 API 助理。關於網站開發、金流 API（例如 Stripe、PayPal 的最新狀態），或是財務管理分析，我都可以為你解答並搜尋最新資訊。'
+    content: '你好，我可以看到你記在 FinTracker 裡的財務摘要，幫你回答像是「這個月花多少」「哪一類比上個月多」「哪個預算快到了」這類問題。\n\n我看到的是彙總數字，不會看到每一筆的備註內容。'
   }]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -41,12 +43,24 @@ export default function AIAssistant() {
     setIsLoading(true);
 
     try {
+      // Ground the question in numbers the local engine computed exactly.
+      // Without this the model has nothing to read and anything number-shaped
+      // it produces is invented — see src/lib/financeContext.ts.
+      const context = buildFinanceContext({
+        transactions: financeRepository.getTransactions(),
+        budgets: financeRepository.getBudgets(),
+        debts: financeRepository.getDebts(),
+        goals: financeRepository.getGoals(),
+        recurring: financeRepository.getRecurring(),
+      });
+
       const response = await fetch('/api/gemini/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages,
-          message: userText
+          message: buildGroundedMessage(userText, context),
+          grounded: true,
         })
       });
 

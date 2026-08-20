@@ -327,6 +327,25 @@ export class FinanceSyncEngine {
     }
   }
 
+  /**
+   * Debounced nudge after a local write.
+   *
+   * A transaction is rarely alone — quick add, then a correction, then another
+   * entry. Syncing on each keystroke-level change would spend the radio three
+   * times for one intent, so this collapses a burst into one cycle. The user
+   * never waits on it: the save already succeeded before this is called.
+   */
+  private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  nudge(userId: string | null, delayMs = 3000): void {
+    if (!userId) return;
+    if (this.nudgeTimer) clearTimeout(this.nudgeTimer);
+    this.nudgeTimer = setTimeout(() => {
+      this.nudgeTimer = null;
+      void this.sync(userId);
+    }, delayMs);
+  }
+
   /** Visible ledger: tombstones are storage, not content. */
   visibleTransactions(): Transaction[] {
     return withoutTombstones(this.repository.getTransactions() as SyncableTransaction[]);

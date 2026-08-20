@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Transaction, Debt, RecurringTransaction, BudgetConfig } from '../types';
 import { formatCurrency } from '../lib/formatters';
-import { getLocalDateKey, parseLocalDateKey } from '../lib/datetime';
+import { FinanceAnalyticsEngine } from '../lib/financeAnalytics';
 import { formatMoneyCompact } from '../lib/money';
 import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, BellRing, CalendarClock, MailOpen, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
@@ -17,89 +17,39 @@ interface DashboardProps {
 const COLORS = ['#BAAC92', '#D1A066', '#7D9D81', '#A993A6', '#D28271', '#9DADAE', '#CBA39E', '#8C8276'];
 
 export default function Dashboard({ transactions, budgets, debts = [], recurring = [] }: DashboardProps) {
-  const { totalIncome, totalExpense, balance, expenseData, currentMonthExpenses, trendData, totalDebt, netWorth, upcomingRecurring, savingsRate, avgDailySpend, topExpenses } = useMemo(() => {
-    let income = 0;
-    let expense = 0;
-    const expenseByCategory: Record<string, number> = {};
-    const currentMonthExpenses: Record<string, number> = {};
-    const monthlyData: Record<string, { name: string; income: number; expense: number }> = {};
-    
-    // Last 6 months for trend
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      monthlyData[monthStr] = { name: monthStr, income: 0, expense: 0 };
-    }
-    
-    const now = new Date();
-    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  /**
+   * All of it comes from FinanceAnalyticsEngine now.
+   *
+   * This used to be ~90 lines of inline filter/reduce here, a second
+   * implementation in the pet's display state, and a third wherever the AI
+   * decided to compute from raw rows. Three implementations of one calculation
+   * is three chances to disagree — and the one that disagrees silently is the
+   * AI, because nobody checks its arithmetic. This component now only decides
+   * how numbers LOOK, never what they are.
+   */
+  const {
+    balance, expenseData, currentMonthExpenses, trendData,
+    totalDebt, netWorth, upcomingRecurring, avgDailySpend, topExpenses,
+  } = useMemo(() => {
+    const engine = new FinanceAnalyticsEngine({ transactions, budgets, debts, recurring });
 
-    transactions.forEach((t) => {
-      const monthKey = t.date.substring(0, 7);
-
-      if (t.type === 'income') {
-        income += t.amount;
-        if (monthlyData[monthKey]) monthlyData[monthKey].income += t.amount;
-      } else {
-        expense += t.amount;
-        expenseByCategory[t.category] = (expenseByCategory[t.category] || 0) + t.amount;
-        
-        if (t.date.startsWith(currentMonthStr)) {
-          currentMonthExpenses[t.category] = (currentMonthExpenses[t.category] || 0) + t.amount;
-        }
-        if (monthlyData[monthKey]) monthlyData[monthKey].expense += t.amount;
-      }
-    });
-
-    const expenseData = Object.entries(expenseByCategory)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-
-    const trendData = Object.values(monthlyData);
-    
-    const calculatedTotalDebt = debts.reduce((sum, d) => sum + d.amount, 0);
-    const calculatedSavingsRate = income > 0 ? ((income - expense) / income) * 100 : 0;
-
-    // Advanced Stats
-    const currentMonthTx = transactions.filter(t => t.date.startsWith(currentMonthStr) && t.type === 'expense');
-    
-    // Average Daily Spend
-    const currentDayOfMonth = now.getDate();
-    const currentMonthExpenseTotal = currentMonthTx.reduce((sum, t) => sum + t.amount, 0);
-    const avgDailySpend = currentDayOfMonth > 0 ? currentMonthExpenseTotal / currentDayOfMonth : 0;
-
-    // Top Expenses this month
-    const topExpenses = [...currentMonthTx].sort((a, b) => b.amount - a.amount).slice(0, 3);
-
-    // Calculate upcoming recurring transactions (within 3 days) for Daily Digest
-    // Both sides must be LOCAL midnight: new Date('YYYY-MM-DD') is UTC midnight,
-    // which lands on the previous/next local day and skews the day count.
-    const today = parseLocalDateKey(getLocalDateKey());
-    const upcoming = recurring.map(rt => {
-      const nextD = parseLocalDateKey(rt.nextDate);
-      const diffTime = nextD.getTime() - today.getTime();
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      return { ...rt, daysLeft: diffDays };
-    }).filter(rt => rt.daysLeft >= 0 && rt.daysLeft <= 3)
-      .sort((a,b) => a.daysLeft - b.daysLeft);
+    const allTime = engine.getAllTimeTotals();
+    const debtSummary = engine.getDebtSummary();
+    const monthBreakdown = engine.getCategoryBreakdown('month');
 
     return {
-      totalIncome: income,
-      totalExpense: expense,
-      balance: income - expense,
-      totalDebt: calculatedTotalDebt,
-      netWorth: (income - expense) - calculatedTotalDebt,
-      savingsRate: calculatedSavingsRate,
-      expenseData,
-      currentMonthExpenses,
-      trendData,
-      upcomingRecurring: upcoming,
-      avgDailySpend,
-      topExpenses,
-      currentMonthExpenseTotal
+      balance: allTime.balance,
+      expenseData: engine.getAllTimeCategoryTotals(),
+      // Keyed by label so the existing budget rows keep resolving.
+      currentMonthExpenses: Object.fromEntries(monthBreakdown.map(c => [c.label, c.amount])) as Record<string, number>,
+      trendData: engine.getMonthlyTrend(6),
+      totalDebt: debtSummary.totalOutstanding,
+      netWorth: allTime.balance - debtSummary.totalOutstanding,
+      avgDailySpend: engine.getAverageDailySpend(),
+      topExpenses: engine.getTopExpenses(3),
+      upcomingRecurring: engine.getUpcomingRecurring(3),
     };
-  }, [transactions, debts, recurring]);
+  }, [transactions, budgets, debts, recurring]);
 
   return (
     <div className="space-y-6">
