@@ -9,10 +9,12 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "sync:shared": "node -e \"require('fs').copyFileSync('shared/pet-shared-config.json','android/app/src/main/assets/pet_shared_config.json')\"",
-    "android:sync": "npm run sync:shared && vite build && cap sync android",
+    "android:sync": "npm run sync:version && npm run sync:shared && vite build && cap sync android",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "start": "tsx server.ts"
+    "start": "tsx server.ts",
+    "sync:version": "node scripts/sync-version.mjs",
+    "check:version": "node scripts/sync-version.mjs --check"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
