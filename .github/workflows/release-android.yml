@@ -238,6 +238,25 @@ jobs:
           # the last production release, so the download page never hands a
           # test build to an ordinary visitor.
           if [ "${CHANNEL}" = "production" ]; then
+            # Never advertise a version older than the one already published.
+            # Android will not install a lower versionCode over a higher one,
+            # so a regression here silently strands every existing user: the
+            # download page offers a build their phone refuses, and the in-app
+            # update check reports "up to date" forever.
+            #
+            # NOTE: keep every line of this run block indented. An unindented
+            # line (a heredoc body at column 0) terminates the YAML block
+            # scalar and makes the whole workflow unparseable.
+            PUBLISHED_URL="${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/android/latest.json"
+            curl -sS -o /tmp/published.json "$PUBLISHED_URL" || echo '{}' > /tmp/published.json
+            PREV_CODE=$(python3 -c 'import json;d=json.load(open("/tmp/published.json"));print(int(d.get("versionCode",0)))' 2>/dev/null || echo 0)
+            NEW_CODE=$(python3 -c "import json;print(int(json.load(open('release/android/${VERSION}/manifest.json'))['versionCode']))")
+            echo "already published versionCode=${PREV_CODE}, publishing ${NEW_CODE}"
+            if [ "$NEW_CODE" -lt "$PREV_CODE" ]; then
+              echo "::error::refusing to point latest.json at versionCode ${NEW_CODE}, older than the published ${PREV_CODE}."
+              echo "::error::To roll back deliberately, overwrite android/latest.json by hand (docs/ANDROID_DISTRIBUTION.md)."
+              exit 1
+            fi
             up "android/latest.json" \
                "release/android/${VERSION}/manifest.json" \
                "application/json"
