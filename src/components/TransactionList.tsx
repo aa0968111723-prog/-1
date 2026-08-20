@@ -94,14 +94,26 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
       const note = `"${(t.note || '').replace(/"/g, '""')}"`;
       return `${t.date},${type},${t.category},${t.amount},${note}`;
     });
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers.concat(rows).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `transaction_history_${getLocalDateKey()}.csv`);
-    document.body.appendChild(link);
+    // A Blob, not a data: URI, and never inserted into the document.
+    //
+    // Two separate bugs were here. First, appending to and removing from
+    // document.body races React's own reconciliation and is one of the ways a
+    // page ends up throwing "removeChild: the node to be removed is not a
+    // child of this node" — a detached anchor clicks perfectly well in every
+    // modern browser, so there is no reason to insert it at all.
+    //
+    // Second, encodeURI() does NOT escape '#'. A note containing a hash — 
+    // "#5 便當" — made the browser treat everything after it as a fragment,
+    // silently truncating the export. A Blob carries the bytes verbatim and
+    // has no URL-length ceiling either, which matters on mobile.
+    const csv = '\uFEFF' + headers.concat(rows).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `transaction_history_${getLocalDateKey()}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   if (transactions.length === 0) {
@@ -268,7 +280,8 @@ export default function TransactionList({ transactions, onDelete, onOpenAdd, deb
                         "font-extrabold tabular-nums text-sm",
                         isIncome ? "text-[#769C7C]" : "text-[#CD7A70]"
                       )}>
-                        {isIncome ? '+' : '-'}{formatCurrency(tx.amount)}
+                        <span>{isIncome ? '+' : '-'}</span>
+                        <span>{formatCurrency(tx.amount)}</span>
                       </span>
                       <button 
                         onClick={() => onDelete(tx.id)}
