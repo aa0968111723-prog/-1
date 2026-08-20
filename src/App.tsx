@@ -14,7 +14,8 @@ import { drainOutbox } from './lib/outboxSync';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { financeRepository } from './lib/financeRepository';
 import { cloudSyncConfigured } from './lib/cloud/enabled';
-import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
+import { getLocalDateKey } from './lib/datetime';
+import { dueOccurrences } from './lib/recurrence';
 import { getQuickCategories } from './lib/quickCategories';
 import PetSprite from './components/pet/PetSprite';
 
@@ -225,28 +226,23 @@ export default function App() {
     let hasUpdates = false;
 
     const nextRecurring = recurring.map(rt => {
-      let cursor = rt.nextDate;
-      let guard = 0;
-      while (cursor <= todayStr && guard < 1000) {
-        guard += 1;
+      // Date arithmetic lives in lib/recurrence.ts, where it is tested. Doing
+      // it inline here is how a rule set for the 31st ended up posting on the
+      // 3rd forever, with February skipped.
+      const { dates, nextDate } = dueOccurrences(rt, todayStr);
+      for (const dateKey of dates) {
         financeRepository.addTransaction({
-          id: `recurring:${rt.id}:${cursor}`,
+          id: `recurring:${rt.id}:${dateKey}`,
           type: rt.type,
           amount: rt.amount,
           category: rt.category,
-          date: cursor,
+          date: dateKey,
           note: `${rt.note}${rt.note ? ' ' : ''}(自動記帳)`,
           source: 'recurring',
         });
-        const next = parseLocalDateKey(cursor);
-        if (rt.frequency === 'daily') next.setDate(next.getDate() + 1);
-        else if (rt.frequency === 'weekly') next.setDate(next.getDate() + 7);
-        else if (rt.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
-        else if (rt.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
-        cursor = getLocalDateKey(next);
         hasUpdates = true;
       }
-      return cursor === rt.nextDate ? rt : { ...rt, nextDate: cursor };
+      return nextDate === rt.nextDate ? rt : { ...rt, nextDate };
     });
 
     if (hasUpdates) {
