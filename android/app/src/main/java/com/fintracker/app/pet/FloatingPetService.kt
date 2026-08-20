@@ -73,7 +73,16 @@ class FloatingPetService : Service() {
     private var quickAddVisible = false
     private var snoozed = false
     private var screenOn = true
+    private var powerSave = false
     private var snapAnimator: ValueAnimator? = null
+    private var walkAnimator: ValueAnimator? = null
+    private var lastUserInteractionMs = System.currentTimeMillis()
+    /** Follow-finger accumulated target (window coords) while dragging. */
+    private var dragTargetX = 0
+    private var dragTargetY = 0
+
+    /** V2: the pet's autonomous life (walks, naps, greetings) — one timer, ever. */
+    private val behavior = PetBehaviorController(stateMachine = stateMachine)
 
     /** Wall-clock deadline for a timed snooze; 0 means "until I turn it back on". */
     private var snoozeUntilEpochMs: Long = 0L
@@ -88,9 +97,12 @@ class FloatingPetService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     screenOn = false
-                    handler.removeCallbacks(idleRunnable)
+                    handler.removeCallbacks(behaviorTickRunnable)
                     handler.removeCallbacks(collapseRunnable)
+                    handler.removeCallbacks(moodRestoreRunnable)
                     snapAnimator?.cancel()
+                    walkAnimator?.cancel()
+                    behavior.pause()
                     runCatching { dismissBubble() }
                     runCatching { dismissMenu() }
                 }
@@ -105,7 +117,10 @@ class FloatingPetService : Service() {
                         runCatching { resumeFromSnooze() }
                     }
                     if (petView != null) {
-                        scheduleIdle()
+                        behavior.onScreenOn(
+                            greetingsEnabled = settings.greetings,
+                            powerSave = powerSave,
+                        )
                         scheduleAutoCollapse()
                     }
                 }
@@ -113,16 +128,28 @@ class FloatingPetService : Service() {
         }
     }
 
-    private val idleRunnable = object : Runnable {
-        override fun run() {
-            runCatching { idleTick() }
-            scheduleIdle()
-        }
-    }
+    /** The single autonomous-life timer (V2). Replaces the old idleRunnable. */
+    private val behaviorTickRunnable = Runnable { runCatching { behavior.tick() } }
 
     private val collapseRunnable = Runnable { runCatching { collapseToEdge() } }
     private val snoozeResumeRunnable = Runnable { runCatching { resumeFromSnooze() } }
     private val bubbleDismissRunnable = Runnable { runCatching { dismissBubble() } }
+
+    /** Restores the base mood after a success/error flash (named → clearable). */
+    private val moodRestoreRunnable = Runnable { runCatching { renderer.setMood(stateMachine.current()) } }
+
+    /** Battery Saver → the pet automatically goes quiet (spec §三十). */
+    private val powerSaveReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            refreshPowerSave()
+        }
+    }
+
+    private fun refreshPowerSave() {
+        powerSave = runCatching {
+            (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode
+        }.getOrDefault(false)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -139,6 +166,80 @@ class FloatingPetService : Service() {
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        ContextCompat.registerReceiver(
+            this,
+            powerSaveReceiver,
+            IntentFilter(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        refreshPowerSave()
+        wireBehaviorController()
+    }
+
+    /** Connects the pure behaviour brain to this service's windows/animators. */
+    private fun wireBehaviorController() {
+        behavior.contextProvider = PetBehaviorController.ContextProvider {
+            PetBehaviorScheduler.Context(
+                nowMs = System.currentTimeMillis(),
+                hourOfDay = Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+                screenOn = screenOn,
+                quickAddOpen = quickAddVisible,
+                menuOpen = menuView != null,
+                dragging = dragging,
+                collapsed = collapsed,
+                powerSave = powerSave,
+                animationLevel = effectiveAnimationLevel(),
+                activityLevel = settings.activityLevel,
+                autonomousEnabled = settings.autonomousMovement,
+                sleepEnabled = settings.sleepMode,
+                lastUserInteractionMs = lastUserInteractionMs,
+                lastWalkMs = behavior.lastWalkMs(),
+                lastStretchDayOfYear = behavior.lastStretchDayTag(),
+                baseMood = stateMachine.baseMood,
+            )
+        }
+        behavior.effects = object : PetBehaviorController.Effects {
+            override fun scheduleNextTick(delayMs: Long) {
+                handler.removeCallbacks(behaviorTickRunnable)
+                if (screenOn && petView != null) handler.postDelayed(behaviorTickRunnable, delayMs)
+            }
+
+            override fun showTransient(state: String, durationMs: Long) {
+                renderer.setMood(state)
+            }
+
+            override fun playMicroAnimation(kind: String) {
+                if (collapsed || dragging) return
+                when (kind) {
+                    PetBehaviorScheduler.Behavior.CURIOUS -> renderer.playCurious()
+                    else -> renderer.playIdleTick()
+                }
+            }
+
+            override fun startWalk() {
+                runCatching { performWalk() }.onFailure { behavior.onWalkFinished() }
+            }
+
+            override fun enterSleep() {
+                renderer.setSleeping(true)
+            }
+
+            override fun exitSleep() {
+                renderer.setSleeping(false)
+                renderer.setMood(stateMachine.current())
+            }
+
+            override fun playGreeting() {
+                renderer.playWave()
+                showBubbleMessage(if (Random.nextBoolean()) "嗨～ 👋" else "回來啦～")
+            }
+
+            override fun playStretch() {
+                renderer.playStretch()
+                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                if (hour in 7..10) showBubbleMessage("早安 ☀️")
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -154,7 +255,11 @@ class FloatingPetService : Service() {
                     intent.getStringExtra(EXTRA_MESSAGE) ?: "這筆還沒存成功，再試一次",
                 )
                 ACTION_SNOOZE -> snooze(intent.getLongExtra(EXTRA_SNOOZE_MINUTES, 30L))
-                ACTION_QUICKADD_SHOWN -> quickAddVisible = true
+                ACTION_QUICKADD_SHOWN -> {
+                    quickAddVisible = true
+                    // Recording beats every animation, including sleep (§四十).
+                    behavior.onQuickAddOpened()
+                }
                 ACTION_QUICKADD_HIDDEN -> {
                     quickAddVisible = false
                     scheduleAutoCollapse()
@@ -224,6 +329,7 @@ class FloatingPetService : Service() {
         removeAllWindows()
         handler.removeCallbacks(snoozeResumeRunnable)
         runCatching { unregisterReceiver(screenReceiver) }
+        runCatching { unregisterReceiver(powerSaveReceiver) }
         running = false
         super.onDestroy()
     }
@@ -317,14 +423,17 @@ class FloatingPetService : Service() {
         petView = view
         petParams = params
         view.alpha = settings.alpha()
-        scheduleIdle()
+        behavior.start()
         scheduleAutoCollapse()
     }
 
     private fun removePetWindowsOnly() {
-        handler.removeCallbacks(idleRunnable)
+        handler.removeCallbacks(behaviorTickRunnable)
         handler.removeCallbacks(collapseRunnable)
+        handler.removeCallbacks(moodRestoreRunnable)
+        behavior.pause()
         snapAnimator?.cancel()
+        walkAnimator?.cancel()
         dismissMenu()
         dismissBubble()
         petView?.let { runCatching { windowManager.removeView(it) } }
@@ -342,13 +451,15 @@ class FloatingPetService : Service() {
 
     private val petCallback = object : FloatingPetView.Callback {
         override fun onTap() {
-            if (collapsed) {
-                expandFromEdge()
-                return
-            }
             noteInteraction()
+            behavior.onUserInteraction()
+            if (collapsed) {
+                // V2: one tap does the job — slide out AND open the sheet.
+                // Recording must never cost a second tap (spec §四十一).
+                expandFromEdge()
+            }
             PetActionBridge.emit(PetActionBridge.EVENT_PET_TAPPED)
-            openQuickAdd("expense")
+            openQuickAdd(settings.defaultType)
         }
 
         override fun onLongPress() {
@@ -357,13 +468,17 @@ class FloatingPetService : Service() {
                 return
             }
             noteInteraction()
+            behavior.onUserInteraction()
             petView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             showMenu()
         }
 
         override fun onDragStart() {
             noteInteraction()
+            behavior.onDragStart()
             dragging = true
+            dragTargetX = petParams?.x ?: 0
+            dragTargetY = petParams?.y ?: 0
             if (collapsed) {
                 collapsed = false
                 petView?.alpha = 1f
@@ -371,8 +486,11 @@ class FloatingPetService : Service() {
             dismissMenu()
             dismissBubble()
             snapAnimator?.cancel()
+            walkAnimator?.cancel()
             stateMachine.request(PetState.DRAGGING, 120_000L)
-            // 拖曳中稍微放大，有「被拿起來」的感覺
+            // 被拿起來：驚訝表情 + 稍微放大 + 輕觸覺（spec §十一/§四十六）
+            renderer.playSurprised()
+            petView?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
             petView?.animate()?.scaleX(1.1f)?.scaleY(1.1f)?.setDuration(120)?.start()
         }
 
@@ -382,16 +500,32 @@ class FloatingPetService : Service() {
             val (w, h) = screenSize()
             val top = topInset()
             val bottom = bottomInset()
-            params.x = max(-petSizePx / 3, min(w - petSizePx + petSizePx / 3, params.x + dx))
+            if (settings.followFinger) {
+                // 跟著手指（spec §十）：累積手指目標，每個事件只追一部分，
+                // 形成柔軟的落後追趕感；touch move 頻率高，殘差很快收斂，
+                // 不需要任何額外 timer。
+                dragTargetX += dx
+                dragTargetY += dy
+                params.x = params.x + ((dragTargetX - params.x) * FOLLOW_CATCH_UP).toInt()
+                params.y = params.y + ((dragTargetY - params.y) * FOLLOW_CATCH_UP).toInt()
+            } else {
+                params.x += dx
+                params.y += dy
+            }
+            params.x = max(-petSizePx / 3, min(w - petSizePx + petSizePx / 3, params.x))
             // 不停進 status bar / 手勢區
-            params.y = max(top, min(h - petSizePx - bottom, params.y + dy))
+            params.y = max(top, min(h - petSizePx - bottom, params.y))
+            renderer.wiggleWings()
             safeUpdate(view, params)
         }
 
         override fun onDragEnd() {
             dragging = false
             stateMachine.clearTransient(PetState.DRAGGING)
+            // 放開：小跳一下 → 吸邊 + 輕觸覺（spec §十一/§四十六）
             petView?.animate()?.scaleX(1f)?.scaleY(1f)?.setDuration(150)?.start()
+            renderer.playSuccessHop()
+            petView?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
             snapToNearestEdge()
         }
     }
@@ -430,6 +564,7 @@ class FloatingPetService : Service() {
     }
 
     private fun noteInteraction() {
+        lastUserInteractionMs = System.currentTimeMillis()
         scheduleAutoCollapse()
     }
 
@@ -678,11 +813,44 @@ class FloatingPetService : Service() {
 
     private fun applyPetState() {
         val state = runCatching { JSONObject(prefs.petStateJson) }.getOrElse { JSONObject() }
-        stateMachine.baseMood = state.optString("mood", PetState.IDLE)
+        val mood = state.optString("mood", PetState.IDLE)
+        val message = state.optString("message", "")
+        stateMachine.baseMood = mood
         renderer.setMood(stateMachine.current())
         renderer.setAnimationLevel(effectiveAnimationLevel())
-        (renderer as? DrawablePetRenderer)?.setAccessory(accessoryForLevel(state.optInt("level", 1)))
+        renderer.setAccessory(accessoryForLevel(state.optInt("level", 1)))
+
+        // Event-style reactions (spec §十九/§十八/§三十四): a NEW milestone or
+        // gentle nudge gets one short animation + bubble, then quiet again.
+        if (message.isNotBlank() && message != lastEventMessage && screenOn && !collapsed && !quickAddVisible) {
+            when (mood) {
+                PetState.CELEBRATE -> {
+                    lastEventMessage = message
+                    if (stateMachine.request(PetState.CELEBRATE, 2_500L)) {
+                        renderer.setMood(PetState.CELEBRATE)
+                        renderer.playCelebrate()
+                        showBubbleMessage(message, 2_500L)
+                        handler.removeCallbacks(moodRestoreRunnable)
+                        handler.postDelayed(moodRestoreRunnable, 2_600L)
+                    }
+                }
+                PetState.CAUTION -> if (settings.reminders) {
+                    lastEventMessage = message
+                    if (stateMachine.request(PetState.REMINDER, 2_500L)) {
+                        // 拿著小帳本輕聲提醒，永遠不生氣（spec §十八）。
+                        renderer.setMood(PetState.REMINDER)
+                        renderer.showProp("notebook", 2_500L)
+                        showBubbleMessage(message, 2_500L)
+                        handler.removeCallbacks(moodRestoreRunnable)
+                        handler.postDelayed(moodRestoreRunnable, 2_600L)
+                    }
+                }
+            }
+        }
     }
+
+    /** Last event message already shown, so a state re-push never repeats it. */
+    private var lastEventMessage: String = ""
 
     /**
      * Cosmetics unlocked by the habit level the web layer computes. They are
@@ -703,7 +871,23 @@ class FloatingPetService : Service() {
             renderer.playSuccess()
         }
         showBubbleMessage(message)
-        handler.postDelayed({ runCatching { renderer.setMood(stateMachine.current()) } }, 2_100L)
+        // Success haptic on the pet itself (spec §四十六).
+        petView?.performHapticFeedback(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM
+            else HapticFeedbackConstants.LONG_PRESS,
+        )
+        // 小音效（spec §四十七）：預設關閉；開啟時輕輕一聲「叮」，no asset needed.
+        if (settings.soundEffects) {
+            runCatching {
+                android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 55)
+                    .apply {
+                        startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 90)
+                        handler.postDelayed({ runCatching { release() } }, 300)
+                    }
+            }
+        }
+        handler.removeCallbacks(moodRestoreRunnable)
+        handler.postDelayed(moodRestoreRunnable, 2_100L)
         scheduleAutoCollapse()
     }
 
@@ -717,7 +901,8 @@ class FloatingPetService : Service() {
             renderer.setMood(PetState.ERROR)
         }
         showBubbleMessage(message, 3_000L)
-        handler.postDelayed({ runCatching { renderer.setMood(stateMachine.current()) } }, 3_100L)
+        handler.removeCallbacks(moodRestoreRunnable)
+        handler.postDelayed(moodRestoreRunnable, 3_100L)
     }
 
     private fun handleSettingsChanged() {
@@ -750,26 +935,65 @@ class FloatingPetService : Service() {
         prefs.savePosition(stored.x, stored.y, edge)
     }
 
-    // ---- idle animation (event-driven, low frequency, battery friendly) ----
+    // ---- autonomous life (V2: scheduler-driven, one timer, battery friendly) ----
 
-    private fun idleTick() {
-        if (collapsed || dragging) return
-        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        val night = hour >= 23 || hour < 7
-        if (night) {
-            // 夜間休息：睡覺表情、幾乎不動。點擊仍照常記帳。
-            if (stateMachine.baseMood == "idle") renderer.setMood("sleepy")
+    /**
+     * One short stroll (spec §五/§八): plan inside the safe area, run a single
+     * ValueAnimator with foot-bob, then return to complete stillness.
+     */
+    private fun performWalk() {
+        val params = petParams ?: run { behavior.onWalkFinished(); return }
+        val view = petView ?: run { behavior.onWalkFinished(); return }
+        val plan = PetMovementController.planWalk(
+            currentXPx = params.x,
+            petSizePx = petSizePx,
+            density = resources.displayMetrics.density,
+            safe = currentSafeRect(),
+        )
+        if (plan == null) {
+            behavior.onWalkFinished()
             return
         }
-        if (!stateMachine.idleTickAllowed()) return
-        renderer.playIdleTick()
+        renderer.setFacing(left = plan.facingLeft)
+        renderer.playWalkBob(plan.hops, plan.durationMs)
+        walkAnimator?.cancel()
+        walkAnimator = ValueAnimator.ofInt(plan.fromX, plan.toX).apply {
+            duration = plan.durationMs
+            interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+            addUpdateListener { anim ->
+                params.x = anim.animatedValue as Int
+                safeUpdate(view, params)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    // Persist where the stroll ended so rotation keeps the spot.
+                    val (w, h) = screenSize()
+                    val normalized = PetPositionManager.normalize(
+                        params.x, params.y - topInset(), w, usableHeight(h), petSizePx,
+                    )
+                    prefs.savePosition(normalized.x, normalized.y, normalized.edge)
+                    renderer.setFacing(left = false)
+                    behavior.onWalkFinished()
+                    renderer.setMood(stateMachine.current())
+                }
+            })
+            start()
+        }
     }
 
-    private fun scheduleIdle() {
-        handler.removeCallbacks(idleRunnable)
-        // No animation work at all while the screen is off or animations are simplified.
-        if (!screenOn || effectiveAnimationLevel() != "full") return
-        handler.postDelayed(idleRunnable, (8_000L + Random.nextLong(12_000L)))
+    /**
+     * The walkable world (spec §七): the screen minus status bar, nav/gesture
+     * zone and display cutouts — derived from real WindowInsets, never
+     * hard-coded pixels.
+     */
+    private fun currentSafeRect(): PetMovementController.SafeRect {
+        val (w, h) = screenSize()
+        return PetMovementController.SafeRect(
+            left = 0,
+            top = topInset(),
+            right = w,
+            bottom = h - bottomInset(),
+        )
     }
 
     /** Simplified animations when the user chose so OR the system disabled animator scale (reduced motion). */
@@ -921,6 +1145,9 @@ class FloatingPetService : Service() {
         }
 
     companion object {
+        /** Follow-finger catch-up per touch event — the soft chase feel (§十). */
+        private const val FOLLOW_CATCH_UP = 0.55f
+
         const val ACTION_START = "com.fintracker.app.pet.START"
         const val ACTION_STOP = "com.fintracker.app.pet.STOP"
         const val ACTION_UPDATE_SETTINGS = "com.fintracker.app.pet.UPDATE_SETTINGS"

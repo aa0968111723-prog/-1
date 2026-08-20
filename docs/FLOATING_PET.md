@@ -21,6 +21,9 @@ Native Overlay 層 (com.fintracker.app.pet)
    FloatingPetService.kt   specialUse 前景服務：建立/移除 overlay、通知、lifecycle、螢幕開關
    FloatingPetView.kt      tap / drag / long-press 手勢（touch slop + long-press timeout）
    PetStateMachine.kt      動畫狀態機與優先權仲裁（純邏輯，可 JVM 測試）
+   PetBehaviorScheduler.kt V2：自主行為決策（眨眼/張望/散步/睡覺/打招呼；純邏輯）
+   PetBehaviorController.kt V2：行為編排與中斷規則（drag/QuickAdd/省電壓過一切；純邏輯）
+   PetMovementController.kt V2：散步與跟手指的位移數學（50–120dp、300–800ms；純邏輯）
    PetRenderer.kt          動畫抽象（預留 Rive/Lottie/Live2D）；DrawablePetRenderer 為第一版
    PetPositionManager.kt   正規化座標 (0..1 + edge)，跨解析度/旋轉恢復位置（純邏輯）
    PendingTransactionCodec / Queue     durable outbox（純邏輯 codec + SharedPreferences commit）
@@ -100,11 +103,22 @@ syncState，`commit()` 寫入）→ 成功 UI（含幾秒復原）→ WebView �
 重放不重複）→ ack 移除。損壞的 queue payload 會備份到獨立 key 後重建，
 絕不因壞資料讓服務起不來。
 
-## 動畫仲裁
+## 動畫仲裁與自主行為（V2）
 
-`PetAnimationController`：priority state machine（success > celebrate > dragging >
-warning > … > idle），成功動畫不會被眨眼蓋掉；夜間 (23:00–07:00) 進入 sleep、
-系統關閉動畫縮放時自動降為簡化動畫。
+`PetStateMachine`：priority state machine（error > success/celebrate > saving >
+dragging/followFinger > edge > reminder/mood > autonomous(walk/stretch/curious) >
+idle decorations），成功動畫不會被眨眼蓋掉、記帳永遠壓過睡覺與散步。
+
+`PetBehaviorScheduler` + `PetBehaviorController`（V2）：桌寵的「生活」。
+- 單一 Handler timer：每次 tick 恰好重排一次，timer 永不累積（soak 測試鎖定）。
+- 活躍程度 安靜/自然/活潑；Battery Saver 自動降為安靜；系統關閉動畫縮放
+  （Reduce Motion）時停用所有自主動作。
+- 散步：50–120dp、300–800ms、AccelerateDecelerate + 腳步 bob，只在安全區內
+  （WindowInsets 推導，永不進 status bar / 手勢區）；IDLE 時零 position 更新。
+- 睡覺：夜間 (23:00–07:00) 或久未互動 → 蓋小被子 + zzz 靜態層；點牠即醒且
+  同一下就開 Quick Add。
+- 打招呼：亮屏後機率性揮手（45 分鐘冷卻，永不每次都出現）。
+- 拖曳：驚訝表情、翅膀輕拍、跟手指柔軟追趕（55%/事件收斂）、放開小跳＋輕觸覺。
 
 ## 已知限制
 
@@ -113,10 +127,9 @@ warning > … > idle），成功動畫不會被眨眼蓋掉；夜間 (23:00–07
   outbox 的一致性已足夠，不為外觀重構資料庫）。
 - 全螢幕 App 偵測不透過 Accessibility Service（不申請敏感權限），以自動收邊 +
   「暫停 30 分鐘」降低干擾。
-- 本開發環境無法連 dl.google.com（Android SDK / AGP），完整 `gradlew test /
-  assembleDebug` 由 GitHub Actions CI 執行並上傳 `app-debug.apk` artifact；
-  純邏輯 Kotlin 測試（40 條）已在 JVM 上通過。實機矩陣見
-  `docs/DEVICE_TEST_CHECKLIST.md`。
+- 完整 `gradlew test / assembleDebug / lintDebug` 由 GitHub Actions CI 執行並上傳
+  `app-debug.apk` artifact；純邏輯 Kotlin 測試（58 條，含 V2 行為/移動/soak）
+  已在 JVM 上通過。實機矩陣見 `docs/DEVICE_TEST_CHECKLIST.md`。
 - minSdk 宣告 24，但 API 24/25 的相容路徑（`TYPE_PHONE`、以及 API 26 才有的
   padding 屬性）沒有在任何 7.x 裝置或模擬器上驗證過。詳見
   `docs/REAL_DEVICE_TESTING.md` 的「minSdk 24 的特別注意」。

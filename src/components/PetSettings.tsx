@@ -5,10 +5,12 @@ import {
   PetEdge,
   PetAutoCollapse,
   PetAnimationLevel,
+  PetActivityLevel,
   PetOpacity,
   PetBubbleDisplay,
   bubbleShowsAmounts,
 } from '../lib/petSettings';
+import PetSprite, { PetSpriteMood } from './pet/PetSprite';
 import { FinancePet, isNativePetAvailable, PetStatus, PetDebugInfo } from '../lib/petBridge';
 import { createBackup, validateBackup, applyBackup, FinanceBackup, BackupValidation } from '../lib/backup';
 import {
@@ -65,6 +67,83 @@ function OptionRow<T extends string>({
             )}
           >
             {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SwitchRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-3 border-b border-black/5 last:border-b-0">
+      <div className="min-w-0">
+        <span className="text-sm font-bold text-[#5C5248]">{label}</span>
+        {hint && <p className="text-[11px] font-bold text-[#A79C90]">{hint}</p>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'relative w-12 h-7 rounded-full transition-colors shrink-0 border border-black/5',
+          checked ? 'bg-[#8CC084]' : 'bg-[#EAE4DB]',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all',
+            checked ? 'left-[calc(100%-1.625rem)]' : 'left-0.5',
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
+/** 狀態預覽（spec §二十七）：五種姿態，點一下播放。 */
+function PetStatePreview() {
+  const [mood, setMood] = useState<PetSpriteMood>('idle');
+  const states: Array<{ mood: PetSpriteMood; label: string }> = [
+    { mood: 'idle', label: '待機' },
+    { mood: 'wave', label: '打招呼' },
+    { mood: 'happy', label: '開心' },
+    { mood: 'thinking', label: '思考' },
+    { mood: 'sleep', label: '睡眠' },
+  ];
+  return (
+    <div className="py-3 space-y-3">
+      <div className="flex justify-center">
+        <div className="w-32 h-32 rounded-[28px] bg-gradient-to-b from-[#FFF3D6] to-[#FFE9A8]/50 border border-white flex items-center justify-center">
+          <PetSprite mood={mood} size={104} />
+        </div>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {states.map(s => (
+          <button
+            key={s.mood}
+            type="button"
+            onClick={() => setMood(s.mood)}
+            className={cn(
+              'px-3 py-1.5 text-xs font-bold rounded-xl border transition-all min-h-[36px]',
+              mood === s.mood
+                ? 'bg-white text-[#5C5248] border-black/10 shadow-sm'
+                : 'bg-[#EAE4DB]/50 text-[#82786D] border-black/5',
+            )}
+          >
+            {s.label}
           </button>
         ))}
       </div>
@@ -242,8 +321,8 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
       ) : (
       <div className="glass rounded-[24px] p-6 space-y-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] flex items-center justify-center text-3xl shadow-inner border border-white/60">
-            🐣
+          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] flex items-center justify-center shadow-inner border border-white/60 overflow-hidden">
+            <PetSprite mood={settings.enabled ? 'happy' : 'idle'} size={72} />
           </div>
           <div className="flex-1">
             <h2 className="font-extrabold text-[#5C5248] text-xl">{settings.petName || '小財'}</h2>
@@ -308,6 +387,67 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
             className="w-32 px-3 py-1.5 text-sm text-right bg-white/70 border border-black/5 text-[#5C5248] font-bold rounded-xl outline-none focus:ring-2 focus:ring-[#87A2B4]/40"
           />
         </div>
+      </Section>
+
+      {/* V2 互動（spec §二十六）：牠怎麼「活」。 */}
+      <Section title="互動">
+        <SwitchRow
+          label="跟著手指"
+          hint="拖曳時柔軟地追著手指走"
+          checked={settings.followFinger}
+          onChange={v => update({ followFinger: v })}
+        />
+        <SwitchRow
+          label="自行走動"
+          hint="偶爾小範圍散步，不會亂跑"
+          checked={settings.autonomousMovement}
+          onChange={v => update({ autonomousMovement: v })}
+        />
+        <SwitchRow
+          label="自動收邊"
+          hint="沒事時靠到螢幕邊休息"
+          checked={settings.autoCollapse !== 'off'}
+          onChange={v => update({ autoCollapse: v ? '15s' : 'off' })}
+        />
+        <SwitchRow
+          label="打招呼"
+          hint="回到螢幕時偶爾揮手"
+          checked={settings.greetings}
+          onChange={v => update({ greetings: v })}
+        />
+        <SwitchRow
+          label="提醒記帳"
+          hint="輕聲提醒，永遠不責備"
+          checked={settings.reminders}
+          onChange={v => update({ reminders: v })}
+        />
+        <SwitchRow
+          label="睡眠模式"
+          hint="夜間或久未互動時打瞌睡"
+          checked={settings.sleepMode}
+          onChange={v => update({ sleepMode: v })}
+        />
+        <SwitchRow
+          label="小音效"
+          hint="記帳成功時輕輕「叮」一聲"
+          checked={settings.soundEffects}
+          onChange={v => update({ soundEffects: v })}
+        />
+        <OptionRow<PetActivityLevel>
+          label="活躍程度"
+          value={settings.activityLevel}
+          options={[
+            { value: 'quiet', label: '安靜' },
+            { value: 'natural', label: '自然' },
+            { value: 'lively', label: '活潑' },
+          ]}
+          onSelect={v => update({ activityLevel: v })}
+        />
+      </Section>
+
+      {/* V2 狀態預覽（spec §二十七）：點一下看動畫，只是設定頁。 */}
+      <Section title="狀態預覽">
+        <PetStatePreview />
       </Section>
 
       {/* 記帳時真正會碰到的兩個開關 */}

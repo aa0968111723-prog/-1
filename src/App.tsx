@@ -15,6 +15,7 @@ import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState
 import { financeRepository } from './lib/financeRepository';
 import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
 import { getQuickCategories } from './lib/quickCategories';
+import PetSprite from './components/pet/PetSprite';
 
 /*
  * 低頻功能一律 lazy。
@@ -500,14 +501,14 @@ export default function App() {
     { tab: 'liabilities', icon: <Target size={18} />, label: '負債與目標' },
     { tab: 'advisor', icon: <span className="text-xl">✨</span>, label: 'AI 財務顧問', accent: true },
     { tab: 'spreadsheet', icon: <span className="text-xl">📝</span>, label: '長期試算表' },
-    { tab: 'pet', icon: <span className="text-xl">🐣</span>, label: '桌寵' },
+    { tab: 'pet', icon: <PetSprite size={22} animated={false} />, label: '桌寵' },
   ];
 
   /* 手機主導覽：四個。中央 ＋ 拿掉了 —— 記一筆在首頁與小財頁都是整頁最大的按鈕。 */
   const mobileTabs: Array<{ tab: FinanceTabType; icon: React.ReactNode; label: string; match: FinanceTabType[] }> = [
     { tab: 'home', icon: <span className="text-xl">🏠</span>, label: '首頁', match: ['home'] },
     { tab: 'transactions', icon: <span className="text-xl">🧾</span>, label: '明細', match: ['transactions'] },
-    { tab: 'pet', icon: <span className="text-xl">🐣</span>, label: '小財', match: ['pet'] },
+    { tab: 'pet', icon: <PetSprite size={24} animated={false} />, label: '小財', match: ['pet'] },
     { tab: 'more', icon: <MoreHorizontal size={20} />, label: '更多', match: ['more', ...MORE_SUBPAGES] },
   ];
 
@@ -644,8 +645,8 @@ export default function App() {
           {/* 桌機：完整分頁列（這個 PR 不改桌機版） */}
           <div className="hidden sm:flex sm:items-center justify-between h-20 gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] rounded-xl flex items-center justify-center text-xl shadow-sm border border-white/50">
-                🐣
+              <div className="w-10 h-10 bg-gradient-to-br from-[#FFE9A8] to-[#F7C873] rounded-xl flex items-center justify-center shadow-sm border border-white/50 overflow-hidden">
+                <PetSprite size={34} animated={false} />
               </div>
               <div className="flex flex-col">
                 <span className="font-extrabold text-[#5C5248] tracking-wide text-lg leading-tight">小財記帳</span>
@@ -689,9 +690,9 @@ export default function App() {
       <button
         onClick={() => setIsQuickAddOpen(true)}
         aria-label="快速記帳"
-        className="hidden sm:flex fixed bottom-[5.5rem] right-6 w-12 h-12 bg-[#E2D8C6] hover:bg-[#d8cbb4] text-[#5C5248] rounded-full items-center justify-center shadow-[0_6px_20px_rgba(180,170,160,0.4)] transition-all duration-300 hover:scale-105 active:scale-95 z-40 text-xl"
+        className="hidden sm:flex fixed bottom-[5.5rem] right-6 w-12 h-12 bg-[#E2D8C6] hover:bg-[#d8cbb4] text-[#5C5248] rounded-full items-center justify-center shadow-[0_6px_20px_rgba(180,170,160,0.4)] transition-all duration-300 hover:scale-105 active:scale-95 z-40"
       >
-        🐣
+        <PetSprite size={38} animated={false} />
       </button>
 
       <button
@@ -736,7 +737,7 @@ export default function App() {
           <div className="bg-[#FAF6F0] w-full max-w-md rounded-t-[24px] sm:rounded-[24px] shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
             <div className="flex items-center justify-between p-4 border-b border-black/5 bg-white/50">
               <h2 className="font-extrabold text-[#5C5248] text-lg flex items-center gap-2">
-                🐣 記一筆
+                <PetSprite size={28} mood="thinking" animated={false} /> 記一筆
               </h2>
               <button
                 onClick={() => setIsQuickAddOpen(false)}
@@ -760,7 +761,7 @@ export default function App() {
       {/* 快速記帳復原提示 */}
       {undoInfo && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 bg-[#5C5248]/95 text-[#FAF6F0] px-5 py-2.5 rounded-full shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <span className="text-sm font-bold">🐣 已記錄 {undoInfo.label}</span>
+          <span className="text-sm font-bold flex items-center gap-1.5"><PetSprite size={20} mood="happy" animated={false} /> 已記錄 {undoInfo.label}</span>
           <button
             onClick={undoQuickTransaction}
             className="text-sm font-extrabold text-[#A8C3D4] hover:text-white transition-colors py-1 px-2"

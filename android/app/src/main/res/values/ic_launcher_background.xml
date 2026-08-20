@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The app's action blue. 小財 is yellow, so the icon reads at 48dp. -->
-    <color name="ic_launcher_background">#87A2B4</color>
+    <!-- V2 柔和奶油底：黃色小財在暖底上依然清楚（spec §五十一）。 -->
+    <color name="ic_launcher_background">#FFEFC9</color>
 </resources>

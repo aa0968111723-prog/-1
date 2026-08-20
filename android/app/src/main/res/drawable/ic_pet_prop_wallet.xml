@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Small brown wallet held at the belly. Tiny wing-hands make it look hugged. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:name="holds">
+        <path
+            android:name="hold_left"
+            android:pathData="M34,80 a6.2,5.4 0 1,0 12.4,0 a6.2,5.4 0 1,0 -12.4,0"
+            android:fillColor="#FFD66B"
+            android:strokeColor="#E0AE45"
+            android:strokeWidth="1" />
+        <path
+            android:name="hold_right"
+            android:pathData="M61.6,80 a6.2,5.4 0 1,0 12.4,0 a6.2,5.4 0 1,0 -12.4,0"
+            android:fillColor="#FFD66B"
+            android:strokeColor="#E0AE45"
+            android:strokeWidth="1" />
+    </group>
+
+    <group android:name="wallet">
+        <path
+            android:name="wallet_body"
+            android:pathData="M39,72 C39,69.4 41,68 44,68 L64,68 C67,68 69,69.4 69,72 L69,90 C69,92.6 67,94 64,94 L44,94 C41,94 39,92.6 39,90 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="54"
+                    android:startY="68"
+                    android:endX="54"
+                    android:endY="94">
+                    <item android:offset="0" android:color="#FFC4A07A" />
+                    <item android:offset="1" android:color="#FF8B5E3C" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:name="flap"
+            android:pathData="M39,72 L69,72 L69,80 C60,83.4 48,83.4 39,80 Z"
+            android:fillColor="#7A4E30" />
+        <path
+            android:name="snap"
+            android:pathData="M50.4,78.2 a3.6,3.4 0 1,0 7.2,0 a3.6,3.4 0 1,0 -7.2,0"
+            android:fillColor="#E8C36A"
+            android:strokeColor="#D0921F"
+            android:strokeWidth="0.9" />
+        <path android:pathData="M52.2,77.2 a1.2,1.1 0 1,0 2.4,0 a1.2,1.1 0 1,0 -2.4,0" android:fillColor="#80FFF3C8" />
+        <path
+            android:pathData="M43,86 L65,86"
+            android:strokeColor="#66F0D2A8"
+            android:strokeWidth="1"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+    </group>
+</vector>

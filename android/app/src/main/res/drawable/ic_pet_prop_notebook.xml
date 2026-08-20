@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tiny notebook + pencil at the belly. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:name="notebook"
+        android:pivotX="48"
+        android:pivotY="82"
+        android:rotation="-6">
+        <path
+            android:pathData="M35,68 C35,65.6 37,64 40,64 L62,64 C65,64 67,65.6 67,68 L67,94 C67,96.4 65,98 62,98 L40,98 C37,98 35,96.4 35,94 Z"
+            android:fillColor="#7FB06F" />
+        <path
+            android:pathData="M37,67 C37,65.4 38.4,64.2 40.2,64.2 L60.5,64.2 C62.3,64.2 63.6,65.4 63.6,67 L63.6,93.5 C63.6,95.1 62.3,96.4 60.5,96.4 L40.2,96.4 C38.4,96.4 37,95.1 37,93.5 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="50"
+                    android:startY="64"
+                    android:endX="50"
+                    android:endY="96">
+                    <item android:offset="0" android:color="#FFFAF6F0" />
+                    <item android:offset="1" android:color="#FFE8DCC8" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M41,64.2 L41,96.4" android:strokeColor="#CD7A70" android:strokeWidth="2.2" android:fillColor="#00000000" />
+        <path android:pathData="M45,72 L58,72" android:strokeColor="#C5B8A4" android:strokeWidth="1.1" android:strokeLineCap="round" android:fillColor="#00000000" />
+        <path android:pathData="M45,78 L56,78" android:strokeColor="#C5B8A4" android:strokeWidth="1.1" android:strokeLineCap="round" android:fillColor="#00000000" />
+        <path android:pathData="M45,84 L57,84" android:strokeColor="#C5B8A4" android:strokeWidth="1.1" android:strokeLineCap="round" android:fillColor="#00000000" />
+        <path android:pathData="M45,90 L53,90" android:strokeColor="#C5B8A4" android:strokeWidth="1.1" android:strokeLineCap="round" android:fillColor="#00000000" />
+    </group>
+
+    <group
+        android:name="pencil"
+        android:pivotX="76"
+        android:pivotY="80"
+        android:rotation="38">
+        <path android:pathData="M73.4,61 L78.6,61 L78.6,63.4 L73.4,63.4 Z" android:fillColor="#F2A6A0" />
+        <path android:pathData="M73.4,63.4 L78.6,63.4 L78.6,65.2 L73.4,65.2 Z" android:fillColor="#C4B08A" />
+        <path android:pathData="M73.4,65.2 L78.6,65.2 L78.6,88 L73.4,88 Z" android:fillColor="#FFD66B" />
+        <path android:pathData="M74.6,65.2 L75.4,65.2 L75.4,88 L74.6,88 Z" android:fillColor="#66FFFFFF" />
+        <path android:pathData="M73.4,88 L78.6,88 L76,94.2 Z" android:fillColor="#E0AE45" />
+        <path android:pathData="M74.7,91.4 L77.3,91.4 L76,94.2 Z" android:fillColor="#4A3B2A" />
+    </group>
+</vector>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Soft blanket draped over the lower half, for sleep. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:name="blanket">
+        <path
+            android:name="drape"
+            android:pathData="M13,74 C22,67 32,72 42,69 C52,66 60,73 70,68 C80,64 90,71 96,69 L97,102 L11,102 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="54"
+                    android:startY="68"
+                    android:endX="54"
+                    android:endY="102">
+                    <item android:offset="0" android:color="#FFE8F2DC" />
+                    <item android:offset="0.55" android:color="#FFD2E4C4" />
+                    <item android:offset="1" android:color="#FFB7CFA6" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:name="hem"
+            android:pathData="M13,74 C22,67 32,72 42,69 C52,66 60,73 70,68 C80,64 90,71 96,69"
+            android:strokeColor="#8FBF7F"
+            android:strokeWidth="1.6"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <path
+            android:name="fold"
+            android:pathData="M28,78 C40,84 58,76 72,82 C80,86 88,84 94,80"
+            android:strokeColor="#66FFFFFF"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <path
+            android:pathData="M22,88 C34,94 50,86 64,92"
+            android:strokeColor="#338FBF7F"
+            android:strokeWidth="1.8"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <path android:pathData="M78,90 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0" android:fillColor="#59F2A6A0" />
+        <path android:pathData="M86,94 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" android:fillColor="#59F2A6A0" />
+    </group>
+</vector>
