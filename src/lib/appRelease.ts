@@ -36,9 +36,26 @@ export interface ReleaseManifest {
   signing?: 'debug' | 'release';
 }
 
-export const RELEASE_MANIFEST_URL: string =
-  (import.meta.env?.VITE_RELEASE_MANIFEST_URL as string | undefined) ??
+const DEFAULT_MANIFEST_URL =
   'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases/android/latest.json';
+
+/**
+ * `??` is the wrong operator for build-time env vars.
+ *
+ * GitHub Actions substitutes an UNSET secret as the empty string, not as
+ * undefined, and Vite inlines that empty string verbatim. `'' ?? fallback`
+ * evaluates to `''`, so the fallback below would be dead code and the download
+ * card would call fetch('') — a broken download button in the very APK the
+ * release publishes. Treat blank as absent.
+ */
+export function envOrDefault(value: string | undefined, fallback: string): string {
+  return value !== undefined && value.trim() !== '' ? value : fallback;
+}
+
+export const RELEASE_MANIFEST_URL: string = envOrDefault(
+  import.meta.env?.VITE_RELEASE_MANIFEST_URL,
+  DEFAULT_MANIFEST_URL,
+);
 
 /** Where a desktop visitor's QR code should point. Never the raw APK. */
 export const DOWNLOAD_PAGE_PATH = '/app/android';

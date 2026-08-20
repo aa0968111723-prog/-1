@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  envOrDefault,
   fetchLatestRelease,
   compareVersions,
   isUpdateAvailable,
@@ -139,5 +140,22 @@ describe('runtime environment', () => {
     const e = detectRuntimeEnvironment('');
     expect(e.platform).toBe('web');
     expect(e.isDesktopBrowser).toBe(true);
+  });
+});
+
+describe('build-time env fallbacks', () => {
+  it('treats an unset secret (empty string) as absent, not as a value', () => {
+    // GitHub Actions substitutes an UNSET secret as '', and Vite inlines that
+    // verbatim. `'' ?? fallback` is '', which would have made the download
+    // card fetch('') inside the published APK.
+    const unsetSecret: string | undefined = process.env.__DEFINITELY_UNSET__ ?? '';
+    expect(unsetSecret ?? 'fallback').toBe(''); // the trap, reproduced
+    expect(envOrDefault('', 'fallback')).toBe('fallback');
+    expect(envOrDefault('   ', 'fallback')).toBe('fallback');
+    expect(envOrDefault(undefined, 'fallback')).toBe('fallback');
+  });
+
+  it('keeps a real configured value', () => {
+    expect(envOrDefault('https://example.test/x.json', 'fallback')).toBe('https://example.test/x.json');
   });
 });

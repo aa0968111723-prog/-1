@@ -81,7 +81,37 @@ versionCode = major*10000 + minor*100 + patch
 沒有設定 `SUPABASE_SERVICE_ROLE_KEY` 時，workflow **不會失敗**：它會發出警告、
 照樣把 APK 和 manifest 留成 build artifact。
 
-## 簽章：目前的誠實狀態
+## 簽章
+
+pipeline 會在有 keystore 時做正式簽章，沒有時退回 debug 簽章：
+
+| Secret | 說明 |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.keystore` 的輸出 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密碼 |
+| `ANDROID_KEY_ALIAS` | key alias |
+| `ANDROID_KEY_PASSWORD` | key 密碼 |
+
+建立 keystore：
+
+```bash
+keytool -genkeypair -v -keystore release.keystore \
+  -alias fintracker -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 release.keystore    # 貼進 ANDROID_KEYSTORE_BASE64
+```
+
+**keystore 本身絕對不進 repo。**
+
+### 為什麼這件事比「不夠正式」嚴重
+
+Gradle 在找不到 debug keystore 時會**自己產生一個**，而全新的 CI runner 永遠沒有。
+所以每一次發布的簽章憑證都不一樣，而 Android 拒絕簽章改變的覆蓋安裝
+（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）—— 使用者每次更新都得先移除舊版。
+
+設了 keystore 之後就穩定了，可以直接覆蓋更新。沒設的話 workflow 仍會發布，
+但 manifest 會標 `signing: debug`，下載頁也會說明要先移除舊版。
+
+## 簽章：先前的說明
 
 **目前沒有 production signing key。** 未簽章的 release build 無法安裝，所以
 pipeline 現在產出的是 **debug 簽章**的 APK，並且在 manifest 的 `channel`

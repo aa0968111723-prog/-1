@@ -79,19 +79,66 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           VITE_RELEASE_MANIFEST_URL: ${{ secrets.RELEASE_MANIFEST_URL }}
 
+      # A real keystore when one is configured; the debug key otherwise.
+      #
+      # This matters more than "not properly signed": Gradle GENERATES a debug
+      # keystore when none exists, and a fresh CI runner never has one. So every
+      # release would carry a DIFFERENT signing certificate, and Android rejects
+      # an in-place upgrade whose signature changed —
+      # INSTALL_FAILED_UPDATE_INCOMPATIBLE. Users would have to uninstall (losing
+      # nothing, the ledger syncs, but still) on every single update.
+      #
+      # With ANDROID_KEYSTORE_BASE64 set, releases are stably signed and upgrade
+      # in place. Without it we still ship, but the manifest says signing=debug
+      # and the download page warns that an update needs an uninstall first.
+      - name: Decode signing keystore
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            # Prove it decoded to a real keystore before trusting it later.
+            if [ ! -s "$RUNNER_TEMP/release.keystore" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 decoded to an empty file"; exit 1
+            fi
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=debug" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64; shipping a debug-signed APK."
+            echo "::warning::Each release will have a different certificate, so users must uninstall before updating."
+          fi
+
       - name: Assemble APK
         working-directory: android
-        # Unsigned release builds cannot be installed, so until a signing key
-        # exists this pipeline ships the debug-signed artifact and labels it
-        # honestly in the manifest. It is NOT presented as a production release
-        # unless a keystore secret is configured (see docs/ANDROID_DISTRIBUTION.md).
-        run: ./gradlew assembleDebug --stacktrace
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNING_MODE" = "release" ]; then
+            ./gradlew assembleRelease --stacktrace \
+              -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
+              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          else
+            ./gradlew assembleDebug --stacktrace
+          fi
 
       - name: Checksum and stage
         id: artifact
         run: |
           set -euo pipefail
-          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+            APK=android/app/build/outputs/apk/release/app-release.apk
+          else
+            APK=android/app/build/outputs/apk/debug/app-debug.apk
+          fi
           test -f "$APK"
           VERSION="${{ steps.meta.outputs.version }}"
           OUT="fintracker-${VERSION}.apk"
@@ -155,7 +202,7 @@ jobs:
           SHA256: ${{ steps.artifact.outputs.sha256 }}
           SIZE: ${{ steps.artifact.outputs.size }}
           MIN_SDK: 24
-          SIGNING: debug
+          SIGNING: ${{ steps.signing.outputs.mode }}
           # Falls back to the project's own public bucket so a release still
           # produces a working URL before anyone configures the override.
           PUBLIC_BASE: ${{ secrets.RELEASE_PUBLIC_BASE || 'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases' }}
