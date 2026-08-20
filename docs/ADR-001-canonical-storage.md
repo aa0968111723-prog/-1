@@ -1,5 +1,10 @@
 # ADR-001：帳本權威來源維持在 Web localStorage，Native 只做持久化 outbox
 
+> **已被取代**：見 `docs/ADR-LOCAL-FIRST-STORAGE.md`。
+> 本文件的結論在「只有 Web + 桌寵、沒有雲端同步」的前提下成立；加入雲端同步與
+> 5 萬筆規模需求之後，localStorage 的配額天花板變成資料遺失風險，因此改採 IndexedDB。
+> 保留本文件是為了留下當時的推理過程。
+
 - **狀態**：Accepted
 - **日期**：2026-08-19
 - **影響範圍**：`src/lib/storage.ts`、`src/lib/financeRepository.ts`、`src/App.tsx` 的 drain 流程、
