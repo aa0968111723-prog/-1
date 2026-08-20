@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Transaction, Debt, RecurringTransaction, BudgetConfig } from '../types';
 import { formatCurrency } from '../lib/formatters';
 import { FinanceAnalyticsEngine } from '../lib/financeAnalytics';
+import { categoryIdForStored } from '../lib/categoryCatalog';
 import { formatMoneyCompact } from '../lib/money';
 import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, BellRing, CalendarClock, MailOpen, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
@@ -40,8 +41,14 @@ export default function Dashboard({ transactions, budgets, debts = [], recurring
     return {
       balance: allTime.balance,
       expenseData: engine.getAllTimeCategoryTotals(),
-      // Keyed by label so the existing budget rows keep resolving.
-      currentMonthExpenses: Object.fromEntries(monthBreakdown.map(c => [c.label, c.amount])) as Record<string, number>,
+      // Keyed by BOTH the canonical label and the stable category id.
+      // Budget keys are whatever label the budget was created with, including
+      // legacy English ones like 'Loan Repayments' that BudgetSettings still
+      // offers; keying only by the engine's canonical label made those rows
+      // report 已花 0 against a real spend.
+      currentMonthExpenses: Object.fromEntries(
+        monthBreakdown.flatMap(c => [[c.label, c.amount], [c.categoryId, c.amount]] as const),
+      ) as Record<string, number>,
       trendData: engine.getMonthlyTrend(6),
       totalDebt: debtSummary.totalOutstanding,
       netWorth: allTime.balance - debtSummary.totalOutstanding,
@@ -223,7 +230,9 @@ export default function Dashboard({ transactions, budgets, debts = [], recurring
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Object.entries(budgets).map(([category, config]) => {
-              const spent = currentMonthExpenses[category] || 0;
+              // Resolve through the id too, so a budget on a legacy label
+              // still finds the spend the engine folded into one category.
+              const spent = currentMonthExpenses[category] ?? currentMonthExpenses[categoryIdForStored(category)] ?? 0;
               const amount = config.amount;
               const percentage = Math.min((spent / amount) * 100, 100);
               const isOver = spent > amount;

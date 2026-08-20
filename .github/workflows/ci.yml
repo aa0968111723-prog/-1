@@ -36,6 +36,10 @@ jobs:
         run: npm run build
       - name: Verify shared config asset in sync
         run: cmp shared/pet-shared-config.json android/app/src/main/assets/pet_shared_config.json
+      - name: Workflows parse and their shell is valid
+        # A workflow that does not parse is only discovered when you try to
+        # use it — which for the release pipeline means at release time.
+        run: node scripts/check-workflows.mjs
       - name: Supabase migrations are valid SQL
         # Cheap structural gate: migrations must exist, be numbered, and every
         # finance table must carry an RLS statement. A schema change that

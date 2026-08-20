@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, ShieldCheck, Smartphone, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
+import { Download, ShieldCheck, Smartphone, ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import {
   ReleaseManifest,
   fetchLatestRelease,
@@ -37,8 +37,13 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
   const [showDetails, setShowDetails] = useState(false);
   const env = runtimeEnvironment;
 
+  // A counter rather than a bare function, so the effect owns cancellation and
+  // a retry cannot race an in-flight request into setting stale state.
+  const [reloadToken, setReloadToken] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     fetchLatestRelease().then(result => {
       if (cancelled) return;
       setManifest(result.manifest);
@@ -48,7 +53,7 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadToken]);
 
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : '';
   const downloadPageUrl = `${siteUrl}${DOWNLOAD_PAGE_PATH}`;
@@ -103,22 +108,37 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
               {manifest.channel === 'internal' && (
                 <span className="ml-1 px-1.5 py-0.5 rounded bg-[#D1A066]/20 text-[#8A6634]">內部測試版</span>
               )}
+              {manifest.signing === 'debug' && (
+                <span className="ml-1 px-1.5 py-0.5 rounded bg-[#D1A066]/20 text-[#8A6634]">測試簽章</span>
+              )}
             </p>
           </>
         ) : (
-          <div className="w-full p-4 rounded-2xl bg-[#EAE4DB]/60 text-center">
-            <p className="text-sm font-bold text-[#5C5248]">
+          <div className="w-full p-4 rounded-2xl bg-[#EAE4DB]/60 text-center space-y-2">
+            <p className="text-sm font-extrabold text-[#5C5248]">
               {error === 'not-published'
-                ? '還沒有發布任何 Android 版本'
+                ? 'Android App 尚未發布'
                 : error === 'malformed'
                   ? '版本資訊讀取失敗'
                   : '目前連不上版本資訊'}
             </p>
-            <p className="text-xs font-bold text-[#A79C90] mt-1">
+            <p className="text-xs font-bold text-[#A79C90]">
               {error === 'not-published'
-                ? '第一個版本發布後，這裡就會出現下載按鈕。'
-                : '請稍後再試，或確認網路連線。'}
+                ? '第一個版本發布之後，這裡就會出現下載按鈕。'
+                : '可能是網路問題，也可能是發布服務暫時無法連線。'}
             </p>
+            {/*
+              A dead end with no action is the worst version of this state. The
+              manifest is fetched once on mount, so without this the only way to
+              retry is a full page reload.
+            */}
+            <button
+              type="button"
+              onClick={() => setReloadToken(t => t + 1)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-black/5 text-xs font-extrabold text-[#5C5248] hover:bg-black/[0.02] transition-all active:scale-[0.98]"
+            >
+              <RefreshCw size={13} /> 重新讀取版本
+            </button>
           </div>
         )}
       </div>
@@ -190,6 +210,22 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
                   </dd>
                 </div>
               </dl>
+
+              {manifest.signing === 'debug' && (
+                <div className="pt-2 border-t border-black/5 leading-relaxed space-y-1.5">
+                  <p className="text-[#5C5248]">關於「測試簽章」</p>
+                  <p>
+                    這個版本用的是 Android 的預設測試金鑰，可以正常安裝使用，
+                    但它不是正式簽章：任何人都能做出一個 Android 會當成「同一個 App」的更新檔。
+                    自己裝來用沒問題，先不要散布給不認識的人。
+                  </p>
+                  <p>
+                    另外，測試簽章每次發布都會產生不同的金鑰，所以更新時 Android 會拒絕直接覆蓋安裝
+                    —— 要先移除舊版再裝新版。帳本資料不會因此消失（登入後會同步回來，
+                    或先用「匯出 JSON」備份）。設定正式金鑰之後就不會有這個問題。
+                  </p>
+                </div>
+              )}
 
               <div className="pt-2 border-t border-black/5 leading-relaxed space-y-1.5">
                 <p className="text-[#5C5248]">安裝步驟</p>

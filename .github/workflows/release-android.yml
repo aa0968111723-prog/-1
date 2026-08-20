@@ -79,19 +79,66 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           VITE_RELEASE_MANIFEST_URL: ${{ secrets.RELEASE_MANIFEST_URL }}
 
+      # A real keystore when one is configured; the debug key otherwise.
+      #
+      # This matters more than "not properly signed": Gradle GENERATES a debug
+      # keystore when none exists, and a fresh CI runner never has one. So every
+      # release would carry a DIFFERENT signing certificate, and Android rejects
+      # an in-place upgrade whose signature changed —
+      # INSTALL_FAILED_UPDATE_INCOMPATIBLE. Users would have to uninstall (losing
+      # nothing, the ledger syncs, but still) on every single update.
+      #
+      # With ANDROID_KEYSTORE_BASE64 set, releases are stably signed and upgrade
+      # in place. Without it we still ship, but the manifest says signing=debug
+      # and the download page warns that an update needs an uninstall first.
+      - name: Decode signing keystore
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            # Prove it decoded to a real keystore before trusting it later.
+            if [ ! -s "$RUNNER_TEMP/release.keystore" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 decoded to an empty file"; exit 1
+            fi
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=debug" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64; shipping a debug-signed APK."
+            echo "::warning::Each release will have a different certificate, so users must uninstall before updating."
+          fi
+
       - name: Assemble APK
         working-directory: android
-        # Unsigned release builds cannot be installed, so until a signing key
-        # exists this pipeline ships the debug-signed artifact and labels it
-        # honestly in the manifest. It is NOT presented as a production release
-        # unless a keystore secret is configured (see docs/ANDROID_DISTRIBUTION.md).
-        run: ./gradlew assembleDebug --stacktrace
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNING_MODE" = "release" ]; then
+            ./gradlew assembleRelease --stacktrace \
+              -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
+              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          else
+            ./gradlew assembleDebug --stacktrace
+          fi
 
       - name: Checksum and stage
         id: artifact
         run: |
           set -euo pipefail
-          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+            APK=android/app/build/outputs/apk/release/app-release.apk
+          else
+            APK=android/app/build/outputs/apk/debug/app-debug.apk
+          fi
           test -f "$APK"
           VERSION="${{ steps.meta.outputs.version }}"
           OUT="fintracker-${VERSION}.apk"
@@ -137,6 +184,12 @@ jobs:
             releasedAt: new Date().toISOString(),
             notes: process.env.NOTES,
             commit: process.env.GITHUB_SHA,
+            // 'debug' until a real keystore exists. A debug APK is debuggable
+            // and signed with the universally-known androiddebugkey, so anyone
+            // can build an "update" Android will accept as the same app. The
+            // download page shows this; the manifest must not let a debug
+            // build pass silently as a normal production release.
+            signing: process.env.SIGNING,
           };
           process.stdout.write(JSON.stringify(manifest, null, 2) + '\n');
           NODE
@@ -149,6 +202,7 @@ jobs:
           SHA256: ${{ steps.artifact.outputs.sha256 }}
           SIZE: ${{ steps.artifact.outputs.size }}
           MIN_SDK: 24
+          SIGNING: ${{ steps.signing.outputs.mode }}
           # Falls back to the project's own public bucket so a release still
           # produces a working URL before anyone configures the override.
           PUBLIC_BASE: ${{ secrets.RELEASE_PUBLIC_BASE || 'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases' }}
@@ -184,6 +238,25 @@ jobs:
           # the last production release, so the download page never hands a
           # test build to an ordinary visitor.
           if [ "${CHANNEL}" = "production" ]; then
+            # Never advertise a version older than the one already published.
+            # Android will not install a lower versionCode over a higher one,
+            # so a regression here silently strands every existing user: the
+            # download page offers a build their phone refuses, and the in-app
+            # update check reports "up to date" forever.
+            #
+            # NOTE: keep every line of this run block indented. An unindented
+            # line (a heredoc body at column 0) terminates the YAML block
+            # scalar and makes the whole workflow unparseable.
+            PUBLISHED_URL="${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/android/latest.json"
+            curl -sS -o /tmp/published.json "$PUBLISHED_URL" || echo '{}' > /tmp/published.json
+            PREV_CODE=$(python3 -c 'import json;d=json.load(open("/tmp/published.json"));print(int(d.get("versionCode",0)))' 2>/dev/null || echo 0)
+            NEW_CODE=$(python3 -c "import json;print(int(json.load(open('release/android/${VERSION}/manifest.json'))['versionCode']))")
+            echo "already published versionCode=${PREV_CODE}, publishing ${NEW_CODE}"
+            if [ "$NEW_CODE" -lt "$PREV_CODE" ]; then
+              echo "::error::refusing to point latest.json at versionCode ${NEW_CODE}, older than the published ${PREV_CODE}."
+              echo "::error::To roll back deliberately, overwrite android/latest.json by hand (docs/ANDROID_DISTRIBUTION.md)."
+              exit 1
+            fi
             up "android/latest.json" \
                "release/android/${VERSION}/manifest.json" \
                "application/json"
@@ -198,6 +271,90 @@ jobs:
           echo "::warning::SUPABASE_SERVICE_ROLE_KEY is not set, so nothing was published."
           echo "::warning::The APK and manifest are still attached as build artifacts."
           echo "::warning::See docs/ANDROID_DISTRIBUTION.md for the secrets this needs."
+
+      # ------------------------------------------------------------------
+      # Post-publish verification.
+      #
+      # A green workflow only proves the upload call returned 2xx. It does not
+      # prove a stranger can actually download the APK, which is the only thing
+      # the user cares about. So fetch what was just published the way a real
+      # visitor would — anonymously, no auth header, over the public URL — and
+      # check the bytes against the manifest.
+      #
+      # This runs on the runner because it has open network access; the
+      # development environment this was authored in cannot reach *.supabase.co
+      # at all, so verification here is the only place it can be real.
+      # ------------------------------------------------------------------
+      - name: Verify the published download works anonymously
+        if: steps.cfg.outputs.publish == 'true' && steps.meta.outputs.channel == 'production'
+        env:
+          PUBLIC_BASE: ${{ secrets.RELEASE_PUBLIC_BASE || 'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases' }}
+          EXPECT_SHA: ${{ steps.artifact.outputs.sha256 }}
+          EXPECT_SIZE: ${{ steps.artifact.outputs.size }}
+          EXPECT_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          MANIFEST_URL="${PUBLIC_BASE}/android/latest.json"
+
+          echo "GET $MANIFEST_URL"
+          # Deliberately NO Authorization header: this must work for a stranger.
+          code=$(curl -sS -o /tmp/latest.json -w '%{http_code}' "$MANIFEST_URL")
+          echo "latest.json -> HTTP $code"
+          [ "$code" = "200" ] || { echo "::error::latest.json is not publicly readable (HTTP $code)"; exit 1; }
+
+          python3 - <<'NODE'
+          import json, os, sys
+          m = json.load(open('/tmp/latest.json'))
+          for k in ('version','versionCode','platform','minAndroid','channel','apkUrl','sha256','size','releasedAt'):
+              if k not in m:
+                  print(f"::error::latest.json is missing required field {k}"); sys.exit(1)
+          if m['channel'] != 'production':
+              print(f"::error::channel is {m['channel']}, expected production"); sys.exit(1)
+          if m['version'] != os.environ['EXPECT_VERSION']:
+              print(f"::error::version {m['version']} != {os.environ['EXPECT_VERSION']}"); sys.exit(1)
+          if m['sha256'] != os.environ['EXPECT_SHA']:
+              print("::error::manifest sha256 does not match the APK that was just built"); sys.exit(1)
+          print(f"manifest OK: {m['version']} code {m['versionCode']} channel {m['channel']}")
+          print(m['apkUrl'])
+          open('/tmp/apkurl','w').write(m['apkUrl'])
+          NODE
+
+          APK_URL=$(cat /tmp/apkurl)
+          echo "GET $APK_URL"
+          code=$(curl -sSL -o /tmp/downloaded.apk -w '%{http_code}' "$APK_URL")
+          ctype=$(curl -sSLI -o /dev/null -w '%{content_type}' "$APK_URL")
+          echo "apk -> HTTP $code, content-type: $ctype"
+          [ "$code" = "200" ] || { echo "::error::APK is not publicly downloadable (HTTP $code)"; exit 1; }
+
+          SIZE=$(stat -c%s /tmp/downloaded.apk)
+          SHA=$(sha256sum /tmp/downloaded.apk | cut -d" " -f1)
+          echo "downloaded: $SIZE bytes, sha256 $SHA"
+          [ "$SIZE" -gt 0 ] || { echo "::error::downloaded APK is empty"; exit 1; }
+          [ "$SIZE" = "$EXPECT_SIZE" ] || { echo "::error::size $SIZE != manifest $EXPECT_SIZE"; exit 1; }
+          [ "$SHA" = "$EXPECT_SHA" ] || { echo "::error::sha256 mismatch: downloaded $SHA, manifest $EXPECT_SHA"; exit 1; }
+
+          # An APK is a zip; if what came back is an XML error page or a JSON
+          # 401 body, this is where it shows up rather than on a user's phone.
+          file /tmp/downloaded.apk
+          head -c 2 /tmp/downloaded.apk | grep -q 'PK' || { echo "::error::downloaded file is not a zip/APK"; exit 1; }
+
+          {
+            echo "### Android download verified"
+            echo ""
+            echo "| check | result |"
+            echo "|---|---|"
+            echo "| latest.json | HTTP 200 |"
+            echo "| channel | production |"
+            echo "| APK URL | HTTP 200 |"
+            echo "| content-type | \`$ctype\` |"
+            echo "| size | $SIZE bytes |"
+            echo "| sha256 | \`$SHA\` |"
+            echo "| matches manifest | yes |"
+            echo ""
+            echo "Anonymous download URL:"
+            echo ""
+            echo "\`$APK_URL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

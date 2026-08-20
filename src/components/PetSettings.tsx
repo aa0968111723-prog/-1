@@ -603,6 +603,23 @@ export default function PetSettings({ settings, onChange }: PetSettingsProps) {
       {native && (
         <Section title="進階">
           <div className="space-y-2 py-2 text-sm font-bold text-[#5C5248]">
+            {/*
+              Which commit is this site actually running? Without it, a page
+              that looks out of date is indistinguishable from a deploy that
+              never fired, and the only debugging tool is guessing.
+            */}
+            <div className="flex justify-between text-[#82786D]">
+              <span>網站版本</span>
+              <span className="font-mono text-xs">
+                {__BUILD_STAMP__.version} · {__BUILD_STAMP__.commit}
+              </span>
+            </div>
+            <div className="flex justify-between text-[#82786D]">
+              <span>建置時間</span>
+              <span className="font-mono text-xs">
+                {new Date(__BUILD_STAMP__.builtAt).toLocaleString('zh-TW')}
+              </span>
+            </div>
             <div className="flex justify-between">
               <span>懸浮視窗權限</span>
               <span>{status?.permissionGranted ? '✓ 已允許' : '✕ 未允許'}</span>

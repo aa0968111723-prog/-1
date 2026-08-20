@@ -35,18 +35,44 @@ if (minor > 99 || patch > 99) {
 const versionCode = major * 10000 + minor * 100 + patch;
 
 const gradle = readFileSync(GRADLE, 'utf8');
-const updated = gradle
-  .replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
-  .replace(/versionName\s+"[^"]*"/, `versionName "${version}"`);
+
+// Read the CURRENT values rather than diffing a string rewrite.
+//
+// The previous check compared the post-replace text with the original, which
+// cannot tell "already in sync" from "the regex matched nothing". A
+// build.gradle whose version lines had been edited into a form the pattern no
+// longer recognises — say `versionCode project.findProperty("vc") ?: 1` —
+// produced an identical string and the gate reported success, which is exactly
+// the "phones refuse the upgrade" failure this script exists to prevent.
+const codeMatch = /versionCode\s+(\d+)/.exec(gradle);
+const nameMatch = /versionName\s+"([^"]*)"/.exec(gradle);
+
+if (!codeMatch || !nameMatch) {
+  console.error(`${GRADLE}: could not find a literal versionCode/versionName to read.`);
+  console.error('Expected lines like:  versionCode 10000   /   versionName "1.0.0"');
+  console.error('A computed or property-driven version cannot be verified here, and an');
+  console.error('unverifiable version is how a release ships that phones refuse to install.');
+  process.exit(1);
+}
+
+const currentCode = Number(codeMatch[1]);
+const currentName = nameMatch[1];
 
 if (checkOnly) {
-  if (updated !== gradle) {
-    console.error(`${GRADLE} is out of sync with package.json (${version} / code ${versionCode}).`);
+  const problems = [];
+  if (currentName !== version) problems.push(`versionName is "${currentName}", expected "${version}"`);
+  if (currentCode !== versionCode) problems.push(`versionCode is ${currentCode}, expected ${versionCode}`);
+  if (problems.length > 0) {
+    console.error(`${GRADLE} is out of sync with package.json:`);
+    for (const p of problems) console.error(`  - ${p}`);
     console.error('Run: npm run sync:version');
     process.exit(1);
   }
   console.log(`version in sync: ${version} (code ${versionCode})`);
 } else {
+  const updated = gradle
+    .replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
+    .replace(/versionName\s+"[^"]*"/, `versionName "${version}"`);
   writeFileSync(GRADLE, updated);
   console.log(`${GRADLE} -> versionName "${version}", versionCode ${versionCode}`);
 }

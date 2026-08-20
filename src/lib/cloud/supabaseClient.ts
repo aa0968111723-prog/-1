@@ -15,8 +15,12 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const url = import.meta.env?.VITE_SUPABASE_URL ?? 'https://oylnzelynmbkozjlwsrd.supabase.co';
-const publishableKey = import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY ?? '';
+import { envOrDefault } from '../appRelease';
+
+// Same trap as the release manifest: an unset GitHub secret arrives as '', and
+// `?? ` does not fall back on an empty string.
+const url = envOrDefault(import.meta.env?.VITE_SUPABASE_URL, 'https://oylnzelynmbkozjlwsrd.supabase.co');
+const publishableKey = envOrDefault(import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY, '');
 
 /**
  * Cloud sync is OPTIONAL. Without a key the app is a complete local-first

@@ -30,6 +30,20 @@ try {
  */
 const isAndroidLanding = window.location.pathname.replace(/\/+$/, '') === '/app/android';
 
+/**
+ * Expose the build stamp before anything renders.
+ *
+ * "Is the deployed site actually the latest main?" was unanswerable without
+ * this — a stale-looking page could equally be a failed deploy or a cached
+ * bundle, and there was no way to tell which. Now it is one line in the
+ * console on any device, including a phone with no devtools via the 進階
+ * section of the pet page.
+ */
+(window as unknown as { __FINTRACKER_BUILD__?: unknown }).__FINTRACKER_BUILD__ = __BUILD_STAMP__;
+console.info(
+  `[FinTracker] v${__BUILD_STAMP__.version} build ${__BUILD_STAMP__.commit} (${__BUILD_STAMP__.builtAt})`,
+);
+
 function mount() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

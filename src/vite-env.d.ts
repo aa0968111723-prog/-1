@@ -19,3 +19,13 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/**
+ * Build metadata inlined by vite.config.ts. Deliberately not from import.meta.env:
+ * these must be present in every build, including one where no VITE_* vars are set.
+ */
+declare const __BUILD_STAMP__: {
+  version: string;
+  commit: string;
+  builtAt: string;
+};
