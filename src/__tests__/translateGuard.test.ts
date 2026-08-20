@@ -96,6 +96,20 @@ describe('sync is driven by the app, not by a settings panel', () => {
     expect(appTsx).toMatch(/financeSync\s*\.\s*sync\s*\(/);
   });
 
+  it('keeps the Supabase SDK out of the entry chunk', () => {
+    // Wiring auth and sync in with static imports pushed the entry bundle from
+    // 346 kB to 577 kB, because everything the entry imports is downloaded and
+    // parsed before the first paint. Both call sites import the cloud modules
+    // dynamically, and only when a key is configured.
+    expect(appTsx).not.toMatch(/^import .*cloud\/(financeSync|auth)/m);
+    expect(appTsx).toMatch(/import\(['"]\.\/lib\/cloud\/financeSync['"]\)/);
+    expect(appTsx).toContain('cloudSyncConfigured');
+
+    expect(mainTsx).not.toMatch(/^import .*cloud\/auth/m);
+    expect(mainTsx).toMatch(/import\(['"]\.\/lib\/cloud\/auth['"]\)/);
+    expect(mainTsx).toContain('cloudSyncConfigured');
+  });
+
   it('AccountPanel no longer constructs its own engine', () => {
     expect(accountPanel).not.toMatch(/new\s+FinanceSyncEngine/);
   });

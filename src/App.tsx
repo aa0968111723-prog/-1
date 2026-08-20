@@ -13,8 +13,7 @@ import { FinancePet, isNativePetAvailable } from './lib/petBridge';
 import { drainOutbox } from './lib/outboxSync';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { financeRepository } from './lib/financeRepository';
-import { financeSync } from './lib/cloud/financeSync';
-import { authController } from './lib/cloud/auth';
+import { cloudSyncConfigured } from './lib/cloud/enabled';
 import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
 import { getQuickCategories } from './lib/quickCategories';
 import PetSprite from './components/pet/PetSprite';
@@ -313,28 +312,47 @@ export default function App() {
    * back — no polling, which would cost battery to discover nothing changed.
    */
   useEffect(() => {
-    const runIfSignedIn = () => {
-      const { mode, user } = authController.getState();
-      if (mode === 'signed-in' && user) void financeSync.sync(user.id);
-    };
+    // Nothing cloud-related is even loaded without a key — see lib/cloud/enabled.ts.
+    if (!cloudSyncConfigured) return;
 
-    const unsubscribeAuth = authController.subscribe(runIfSignedIn);
-    const unsubscribeSync = financeSync.subscribe(status => {
-      // Only on a completed cycle that actually changed the ledger; a status
-      // tick for "syncing" would re-render the whole app for nothing.
-      if (status.phase === 'idle' && status.lastPulled > 0) syncFromRepository();
-    });
+    let dispose: (() => void) | null = null;
+    let cancelled = false;
 
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') runIfSignedIn();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('online', runIfSignedIn);
+    void Promise.all([import('./lib/cloud/financeSync'), import('./lib/cloud/auth')]).then(
+      ([{ financeSync }, { authController }]) => {
+        if (cancelled) return;
+
+        const runIfSignedIn = () => {
+          const { mode, user } = authController.getState();
+          if (mode === 'signed-in' && user) void financeSync.sync(user.id);
+        };
+
+        const unsubscribeAuth = authController.subscribe(runIfSignedIn);
+        const unsubscribeSync = financeSync.subscribe(status => {
+          // Only on a completed cycle that actually changed the ledger; a
+          // status tick for "syncing" would re-render the whole app for
+          // nothing.
+          if (status.phase === 'idle' && status.lastPulled > 0) syncFromRepository();
+        });
+
+        const onVisible = () => {
+          if (document.visibilityState === 'visible') runIfSignedIn();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('online', runIfSignedIn);
+
+        dispose = () => {
+          unsubscribeAuth();
+          unsubscribeSync();
+          document.removeEventListener('visibilitychange', onVisible);
+          window.removeEventListener('online', runIfSignedIn);
+        };
+      },
+    );
+
     return () => {
-      unsubscribeAuth();
-      unsubscribeSync();
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('online', runIfSignedIn);
+      cancelled = true;
+      dispose?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -7,7 +7,7 @@ import './index.css';
 import {runStorageMigration} from './lib/storage';
 import {runIntegrityCheck} from './lib/integrity';
 import {financeStore} from './lib/financeStore';
-import {authController} from './lib/cloud/auth';
+import {cloudSyncConfigured} from './lib/cloud/enabled';
 
 // Storage schema migration must complete before any component reads finance data.
 runStorageMigration();
@@ -77,8 +77,16 @@ function mount() {
  * Deliberately NOT awaited before mount: the ledger is local-first and must
  * not wait on the network to draw. Failures are already swallowed inside
  * init(), which falls back to guest.
+ *
+ * Imported dynamically and only when a key is configured: a static import
+ * would put the whole Supabase SDK in the entry chunk, which every user
+ * downloads before the first paint whether or not they sync.
  */
-void authController.init().catch(e => console.warn('[FinTracker.Auth] init failed', e));
+if (cloudSyncConfigured) {
+  void import('./lib/cloud/auth')
+    .then(m => m.authController.init())
+    .catch(e => console.warn('[FinTracker.Auth] init failed', e));
+}
 
 financeStore
   .init()
