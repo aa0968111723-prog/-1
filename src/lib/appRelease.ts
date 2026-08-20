@@ -27,6 +27,13 @@ export interface ReleaseManifest {
   notes: string;
   /** Present on internal builds: which commit produced it. */
   commit?: string;
+  /**
+   * How the APK is signed. 'debug' means the universally-known
+   * androiddebugkey: installable and functional, but anyone can build an
+   * "update" Android accepts as the same app, and the build is debuggable.
+   * Absent on manifests published before this field existed.
+   */
+  signing?: 'debug' | 'release';
 }
 
 export const RELEASE_MANIFEST_URL: string =

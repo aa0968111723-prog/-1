@@ -108,6 +108,9 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
               {manifest.channel === 'internal' && (
                 <span className="ml-1 px-1.5 py-0.5 rounded bg-[#D1A066]/20 text-[#8A6634]">內部測試版</span>
               )}
+              {manifest.signing === 'debug' && (
+                <span className="ml-1 px-1.5 py-0.5 rounded bg-[#D1A066]/20 text-[#8A6634]">測試簽章</span>
+              )}
             </p>
           </>
         ) : (
@@ -207,6 +210,18 @@ export default function AndroidDownloadCard({ variant = 'card' }: Props) {
                   </dd>
                 </div>
               </dl>
+
+              {manifest.signing === 'debug' && (
+                <div className="pt-2 border-t border-black/5 leading-relaxed space-y-1.5">
+                  <p className="text-[#5C5248]">關於「測試簽章」</p>
+                  <p>
+                    這個版本用的是 Android 的預設測試金鑰，可以正常安裝使用，
+                    但它不是正式簽章：任何人都能做出一個 Android 會當成「同一個 App」的更新檔。
+                    自己裝來用沒問題，先不要散布給不認識的人。
+                  </p>
+                  <p>正式金鑰建立之後，會需要先移除這個版本再安裝新的。</p>
+                </div>
+              )}
 
               <div className="pt-2 border-t border-black/5 leading-relaxed space-y-1.5">
                 <p className="text-[#5C5248]">安裝步驟</p>

@@ -137,6 +137,12 @@ jobs:
             releasedAt: new Date().toISOString(),
             notes: process.env.NOTES,
             commit: process.env.GITHUB_SHA,
+            // 'debug' until a real keystore exists. A debug APK is debuggable
+            // and signed with the universally-known androiddebugkey, so anyone
+            // can build an "update" Android will accept as the same app. The
+            // download page shows this; the manifest must not let a debug
+            // build pass silently as a normal production release.
+            signing: process.env.SIGNING,
           };
           process.stdout.write(JSON.stringify(manifest, null, 2) + '\n');
           NODE
@@ -149,6 +155,7 @@ jobs:
           SHA256: ${{ steps.artifact.outputs.sha256 }}
           SIZE: ${{ steps.artifact.outputs.size }}
           MIN_SDK: 24
+          SIGNING: debug
           # Falls back to the project's own public bucket so a release still
           # produces a working URL before anyone configures the override.
           PUBLIC_BASE: ${{ secrets.RELEASE_PUBLIC_BASE || 'https://oylnzelynmbkozjlwsrd.supabase.co/storage/v1/object/public/app-releases' }}
