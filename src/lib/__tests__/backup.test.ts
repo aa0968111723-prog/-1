@@ -78,3 +78,22 @@ describe('backup', () => {
     expect(safety.transactions).toHaveLength(2); // original data recoverable
   });
 });
+
+describe('a tombstone is not an entry', () => {
+  it('does not count deleted rows in the import preview', () => {
+    // The count is shown right before the user chooses 取代 or 合併. Saying
+    // "322 筆" when 50 of them are deletions overstates what they are about
+    // to restore. The rows still travel — they just are not entries.
+    const backup = {
+      schemaVersion: CURRENT_STORAGE_VERSION,
+      transactions: [
+        { id: 'a', type: 'expense', amount: 100, category: '餐飲美食', date: '2026-08-20', note: '' },
+        { id: 'b', type: 'expense', amount: 250, category: '交通出行', date: '2026-08-20', note: '', deletedAt: '2026-08-20T10:00:00Z' },
+      ],
+    };
+
+    const result = validateBackup(backup);
+
+    expect(result.counts.transactions).toBe(1);
+  });
+});

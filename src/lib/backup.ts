@@ -7,6 +7,7 @@
  */
 
 import { Transaction, BudgetConfig, RecurringTransaction, Debt, Goal, SpreadsheetRecord } from '../types';
+import { isTombstoned } from './tombstone';
 import { STORAGE_KEYS, CURRENT_STORAGE_VERSION, loadJSON, saveJSON } from './storage';
 import { PetSettings, loadPetSettings } from './petSettings';
 
@@ -67,7 +68,13 @@ export function validateBackup(data: unknown): BackupValidation {
       errors.push(`${key} 不是陣列`);
       continue;
     }
-    counts[key] = value.length;
+    // Tombstones are carried in the backup so a restore does not resurrect
+    // rows the user deleted — but they are not entries, and counting them
+    // would tell the user their backup holds more than it does right before
+    // they decide whether to replace their data with it.
+    counts[key] = key === 'transactions'
+      ? (value as Transaction[]).filter(t => !isTombstoned(t)).length
+      : value.length;
   }
   if (Array.isArray(b.transactions)) {
     const bad = b.transactions.filter(
