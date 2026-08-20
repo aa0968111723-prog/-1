@@ -47,6 +47,16 @@ describe('index.html translate guard', () => {
  * function, not the fact that the app invokes it.
  */
 /**
+ * Wiring guards: things that are easy to delete and expensive to miss.
+ *
+ * Everything here is a static check on source text, because each one catches a
+ * failure that no runtime test structurally can — a marker removed from the
+ * HTML, an init() nobody calls, a subscription deleted, a dynamic import
+ * quietly turned static. Unit tests exercise functions; these assert that the
+ * app actually invokes them.
+ */
+
+/**
  * Comments stripped before matching.
  *
  * The first version of this guard passed with the call deleted, because the
@@ -113,4 +123,24 @@ describe('sync is driven by the app, not by a settings panel', () => {
   it('AccountPanel no longer constructs its own engine', () => {
     expect(accountPanel).not.toMatch(/new\s+FinanceSyncEngine/);
   });
+});
+
+/*
+ * The repository is documented as "the single data gateway". App bypassed it
+ * for budgets and recurring rules, writing them only to the legacy
+ * localStorage safety net, so the durable store kept whatever was loaded at
+ * startup and every repository reader — the AI's grounding context most
+ * visibly — served last session's numbers.
+ */
+describe('App persists through the repository, not only to the safety net', () => {
+  for (const [state, setter] of [
+    ['budgets', 'saveBudgets'],
+    ['recurring', 'saveRecurring'],
+    ['spreadsheetRecords', 'saveSpreadsheetRecords'],
+    ['monthlyIncome', 'saveMonthlyIncome'],
+  ] as const) {
+    it(`writes ${state} through financeRepository.${setter}`, () => {
+      expect(appTsx).toMatch(new RegExp(`financeRepository\\s*\\.\\s*${setter}\\s*\\(`));
+    });
+  }
 });

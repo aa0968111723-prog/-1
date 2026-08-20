@@ -166,9 +166,25 @@ export default function App() {
     return [];
   });
 
-  // Save to local storage
+  /*
+   * Persist.
+   *
+   * The raw localStorage writes are the documented safety net (see the README:
+   * the legacy finance_* keys are kept untouched). They are NOT the durable
+   * copy — that is the FinanceStore behind financeRepository.
+   *
+   * Transactions, debts and goals already reach the store through the
+   * repository's own mutators. Budgets, recurring rules, the spreadsheet and
+   * monthly income did not: nothing wrote them through the repository at all,
+   * so the store kept whatever was loaded at startup. Anything reading through
+   * the repository — the AI's grounding context most visibly — got last
+   * session's numbers. Edit a budget from NT$3,000 to NT$9,999, ask 小財 about
+   * it, and it answered NT$3,000: not invented, just stale, which grounding
+   * was specifically supposed to prevent.
+   */
   useEffect(() => {
     localStorage.setItem('finance_monthly_income', monthlyIncome.toString());
+    financeRepository.saveMonthlyIncome(monthlyIncome);
   }, [monthlyIncome]);
 
   useEffect(() => {
@@ -177,10 +193,12 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('finance_budgets', JSON.stringify(budgets));
+    financeRepository.saveBudgets(budgets);
   }, [budgets]);
 
   useEffect(() => {
     localStorage.setItem('finance_recurring', JSON.stringify(recurring));
+    financeRepository.saveRecurring(recurring);
   }, [recurring]);
 
   useEffect(() => {
@@ -193,6 +211,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('finance_spreadsheet_records', JSON.stringify(spreadsheetRecords));
+    financeRepository.saveSpreadsheetRecords(spreadsheetRecords);
   }, [spreadsheetRecords]);
 
   useEffect(() => {
