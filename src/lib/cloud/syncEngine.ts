@@ -210,7 +210,7 @@ export class FinanceSyncEngine {
 
   /** Local rows the cloud has not confirmed. Drives the "等待同步 N 筆" hint. */
   countPending(): number {
-    const rows = this.repository.getTransactions() as SyncableTransaction[];
+    const rows = this.repository.getAllTransactionsIncludingDeleted() as SyncableTransaction[];
     return rows.filter(r => {
       if (!r.updatedAt) return false; // legacy row, never edited since sync existed
       return !r.syncedAt || r.updatedAt > r.syncedAt;
@@ -261,7 +261,7 @@ export class FinanceSyncEngine {
       );
 
       // ---- merge ----
-      const local = this.repository.getTransactions() as SyncableTransaction[];
+      const local = this.repository.getAllTransactionsIncludingDeleted() as SyncableTransaction[];
       const result = mergeById(local, remote);
 
       // Local state is written BEFORE the push. If the push then fails, the
@@ -286,16 +286,42 @@ export class FinanceSyncEngine {
         }
       }
 
-      // Stamp what the cloud has actually confirmed. Without this every row
-      // looks dirty forever and the UI reports "等待同步 322 筆" on a fully
-      // synced ledger. Rows that came FROM the cloud are confirmed by
-      // definition; rows we pushed are confirmed by the upsert succeeding.
+      /*
+       * Stamp what the cloud has actually confirmed. Without this every row
+       * looks dirty forever and the UI reports "等待同步 322 筆" on a fully
+       * synced ledger. Rows that came FROM the cloud are confirmed by
+       * definition; rows we pushed are confirmed by the upsert succeeding.
+       *
+       * Re-read before writing. `result.merged` was computed BEFORE the push
+       * await, and on a phone that await is seconds long — long enough for the
+       * user to tap 記一筆. Writing the old array back erased that entry
+       * silently, while the cycle reported ok:true. Reproduced in
+       * "a transaction added while the push is in flight survives".
+       *
+       * Only the stamp is applied, never the old row's contents: if the user
+       * EDITED a row mid-push, its updatedAt has moved on, so it stays dirty
+       * and goes out next cycle rather than being marked clean at a version
+       * the cloud never saw.
+       */
       const remoteIds = new Set(remote.map(r => r.id));
-      const stamped = result.merged.map(tx =>
-        confirmed.has(tx.id) || remoteIds.has(tx.id)
-          ? { ...tx, syncedAt: tx.updatedAt ?? new Date().toISOString() }
-          : tx,
-      );
+      const syncedVersion = new Map<string, string | undefined>();
+      for (const tx of result.merged) {
+        if (confirmed.has(tx.id) || remoteIds.has(tx.id)) syncedVersion.set(tx.id, tx.updatedAt);
+      }
+
+      const current = this.repository.getAllTransactionsIncludingDeleted() as SyncableTransaction[];
+      const seen = new Set(current.map(t => t.id));
+      const stamped = current.map(tx => {
+        if (!syncedVersion.has(tx.id)) return tx;
+        const pushedVersion = syncedVersion.get(tx.id);
+        if (tx.updatedAt !== pushedVersion) return tx; // edited mid-push; still dirty
+        return { ...tx, syncedAt: pushedVersion ?? new Date().toISOString() };
+      });
+      // A row the merge produced but that is missing from storage would mean
+      // something deleted it mid-cycle; keep it rather than lose the pull.
+      for (const tx of result.merged) {
+        if (!seen.has(tx.id)) stamped.push(syncedVersion.has(tx.id) ? { ...tx, syncedAt: tx.updatedAt } : tx);
+      }
       this.repository.saveTransactions(stamped);
 
       // ---- cursor last ----
@@ -348,6 +374,6 @@ export class FinanceSyncEngine {
 
   /** Visible ledger: tombstones are storage, not content. */
   visibleTransactions(): Transaction[] {
-    return withoutTombstones(this.repository.getTransactions() as SyncableTransaction[]);
+    return withoutTombstones(this.repository.getAllTransactionsIncludingDeleted() as SyncableTransaction[]);
   }
 }

@@ -28,6 +28,7 @@
  */
 
 import { Transaction, BudgetConfig, Debt, Goal, RecurringTransaction } from '../types';
+import { isTombstoned } from './tombstone';
 import {
   getLocalDateKey,
   getLocalWeekStartKey,
@@ -228,7 +229,7 @@ export class FinanceAnalyticsEngine {
   private readonly sortedDayKeys: string[];
 
   constructor(input: AnalyticsInput, now: Date = new Date()) {
-    this.txs = input.transactions ?? [];
+    this.txs = (input.transactions ?? []).filter(t => !isTombstoned(t));
     this.budgets = input.budgets ?? {};
     this.debts = input.debts ?? [];
     this.goals = input.goals ?? [];
@@ -238,6 +239,10 @@ export class FinanceAnalyticsEngine {
 
     for (const t of this.txs) {
       if (!t || typeof t.date !== 'string') continue;
+      // A tombstone is a row the user deleted; it stays on disk only so the
+      // deletion can sync. Summing one would put deleted money back into
+      // every total in the app.
+      if (isTombstoned(t)) continue;
       const bucket = this.byDay.get(t.date);
       if (bucket) bucket.push(t);
       else this.byDay.set(t.date, [t]);

@@ -235,8 +235,13 @@ describe('a sync cycle', () => {
     const engine = new FinanceSyncEngine(r, storage, () => client, () => true);
     await engine.sync(USER);
 
-    expect(r.getTransactions()).toHaveLength(1);         // tombstone retained
-    expect(engine.visibleTransactions()).toHaveLength(0); // but not shown
+    // Retained on disk so the deletion keeps syncing...
+    expect(r.getAllTransactionsIncludingDeleted()).toHaveLength(1);
+    // ...but invisible to every ordinary reader. getTransactions() used to
+    // return it, which put a deleted transaction back into every total the
+    // analytics engine computed.
+    expect(r.getTransactions()).toHaveLength(0);
+    expect(engine.visibleTransactions()).toHaveLength(0);
   });
 });
 
@@ -271,5 +276,77 @@ describe('the post-write nudge', () => {
     engine.nudge(null);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * The window between the pre-push snapshot and the post-push write.
+ *
+ * The cycle used to compute its final array before awaiting the upsert and
+ * then write that array back afterwards. On a phone the await is seconds
+ * long — long enough for the user to record a transaction, which the write
+ * then erased while the cycle reported ok:true.
+ */
+describe('a local edit made while the push is in flight', () => {
+  // An earlier suite installs fake timers and does not restore them, so the
+  // awaited setTimeout below would never fire.
+  beforeEach(() => vi.useRealTimers());
+
+  /** A cloud whose upsert runs `during` before resolving. */
+  function slowCloud(during: () => void): SupabaseLike {
+    return {
+      from() {
+        const q = {
+          select: () => q,
+          eq: () => q,
+          gt: () => q,
+          order: () => q,
+          limit: async () => ({ data: [], error: null }),
+        };
+        return {
+          select: () => q,
+          upsert: async () => {
+            during();
+            await new Promise(res => setTimeout(res, 0));
+            return { error: null };
+          },
+        } as never;
+      },
+    };
+  }
+
+  it('survives the sync that was already in progress', async () => {
+    const r = repo();
+    r.addTransaction({ id: 'local-1', type: 'expense', amount: 100, category: '餐飲美食', date: '2026-08-20', note: '' });
+
+    const client = slowCloud(() => {
+      r.addTransaction({ id: 'during-push', type: 'expense', amount: 999, category: '交通出行', date: '2026-08-20', note: '' });
+    });
+    const engine = new FinanceSyncEngine(r, createMemoryStorage(), () => client, () => true);
+
+    const outcome = await engine.sync(USER);
+    expect(outcome.ok).toBe(true);
+    expect(r.getTransactions().map(t => t.id).sort()).toEqual(['during-push', 'local-1']);
+  });
+
+  it('is not marked synced at a version the cloud never received', async () => {
+    const r = repo();
+    r.addTransaction({ id: 'edited', type: 'expense', amount: 100, category: '餐飲美食', date: '2026-08-20', note: '' });
+
+    const client = slowCloud(() => {
+      // The user corrects the amount while the old value is being uploaded.
+      const rows = r.getTransactions().map(t =>
+        t.id === 'edited' ? { ...t, amount: 250, updatedAt: '2999-01-01T00:00:00Z' } : t,
+      );
+      r.saveTransactions(rows);
+    });
+    const engine = new FinanceSyncEngine(r, createMemoryStorage(), () => client, () => true);
+
+    await engine.sync(USER);
+
+    const row = r.getTransactions().find(t => t.id === 'edited') as { amount: number; syncedAt?: string };
+    expect(row.amount).toBe(250);           // the correction survived
+    expect(row.syncedAt).toBeUndefined();   // and is still queued to go out
+    expect(engine.countPending()).toBe(1);
   });
 });

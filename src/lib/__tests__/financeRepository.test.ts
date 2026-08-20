@@ -3,6 +3,7 @@ import { FinanceRepository, applyLinkedEffects, revertLinkedEffects, computeToda
 import { STORAGE_KEYS } from '../storage';
 import { createMemoryStorage } from './testUtils';
 import { Transaction, Debt, Goal } from '../../types';
+import { FinanceAnalyticsEngine } from '../financeAnalytics';
 
 const debt: Debt = { id: 'd1', name: '卡債', amount: 10000, interestRate: 12, dueDate: '2026-12-31', note: '' };
 const goal: Goal = { id: 'g1', name: '旅遊基金', targetAmount: 30000, currentAmount: 1000, targetDate: '2026-12-31' };
@@ -73,5 +74,88 @@ describe('computeTodaySummary', () => {
       { id: '1', type: 'expense', amount: 10, category: 'x', date: '2026-08-19', note: '' },
     ];
     expect(computeTodaySummary(txs, now).count).toBe(1);
+  });
+});
+
+/*
+ * Deleting has to be a fact the other devices can learn, not an absence they
+ * can never notice. merge.ts has carried the tombstone machinery since sync
+ * was written; deleteTransaction was still doing filter(t => t.id !== id), so
+ * nothing ever produced one.
+ */
+describe('deleting writes a tombstone', () => {
+  function seeded() {
+    const r = new FinanceRepository(createMemoryStorage());
+    r.addTransaction({ id: 'keep', type: 'expense', amount: 100, category: '餐飲美食', date: '2026-08-20', note: '' });
+    r.addTransaction({ id: 'gone', type: 'expense', amount: 250, category: '交通出行', date: '2026-08-20', note: '' });
+    return r;
+  }
+
+  it('hides the row from readers but keeps it on disk', () => {
+    const r = seeded();
+    r.deleteTransaction('gone');
+
+    expect(r.getTransactions().map(t => t.id)).toEqual(['keep']);
+    expect(r.getAllTransactionsIncludingDeleted().map(t => t.id).sort()).toEqual(['gone', 'keep']);
+  });
+
+  it('stamps deletedAt and moves updatedAt so the deletion can win a merge', () => {
+    const r = seeded();
+    r.deleteTransaction('gone');
+
+    const row = r.getAllTransactionsIncludingDeleted().find(t => t.id === 'gone') as
+      Transaction & { deletedAt?: string; updatedAt?: string };
+    expect(row.deletedAt).toBeTruthy();
+    expect(row.updatedAt).toBe(row.deletedAt);
+  });
+
+  it('keeps the deleted money out of every total', () => {
+    const r = seeded();
+    r.deleteTransaction('gone');
+    const engine = new FinanceAnalyticsEngine({ transactions: r.getAllTransactionsIncludingDeleted() });
+    // Even handed the raw list, the engine must not sum a tombstone — the
+    // repository is not the only way rows reach it (backup import, sync).
+    expect(engine.getAllTimeTotals().expense).toBe(100);
+  });
+
+  it('still reverses the linked debt or goal effect exactly once', () => {
+    const r = new FinanceRepository(createMemoryStorage());
+    r.saveDebts([{ id: 'd1', name: '車貸', amount: 10000, interestRate: 5, monthlyPayment: 1000 } as Debt]);
+    const tx = r.addTransaction({
+      id: 'pay', type: 'expense', amount: 3000, category: '負債償還',
+      date: '2026-08-20', note: '', linkedDebtId: 'd1',
+    } as never);
+    expect(r.getDebts()[0].amount).toBe(7000);
+
+    r.deleteTransaction(tx.id);
+    expect(r.getDebts()[0].amount).toBe(10000);
+
+    // A second delete must be a no-op, or the balance would be credited twice.
+    r.deleteTransaction(tx.id);
+    expect(r.getDebts()[0].amount).toBe(10000);
+  });
+
+  it('does not let a replayed outbox entry resurrect a deleted row', () => {
+    const r = seeded();
+    r.deleteTransaction('gone');
+
+    expect(r.hasTransaction('gone')).toBe(true);
+    r.addTransaction({ id: 'gone', type: 'expense', amount: 250, category: '交通出行', date: '2026-08-20', note: '' });
+    expect(r.getTransactions().map(t => t.id)).toEqual(['keep']);
+  });
+
+  it('prunes only tombstones the cloud has already confirmed', () => {
+    const r = seeded();
+    const old = '2020-01-01T00:00:00.000Z';
+    r.saveTransactions([
+      { id: 'confirmed-old', type: 'expense', amount: 1, category: '餐飲美食', date: '2020-01-01', note: '', deletedAt: old, syncedAt: old },
+      { id: 'never-synced', type: 'expense', amount: 1, category: '餐飲美食', date: '2020-01-01', note: '', deletedAt: old },
+      { id: 'keep', type: 'expense', amount: 100, category: '餐飲美食', date: '2026-08-20', note: '' },
+    ] as Transaction[]);
+
+    expect(r.pruneTombstones(new Date('2026-08-20T00:00:00Z'))).toBe(1);
+    // A device that has been offline for a year still needs to hear about the
+    // one that never reached the cloud.
+    expect(r.getAllTransactionsIncludingDeleted().map(t => t.id).sort()).toEqual(['keep', 'never-synced']);
   });
 });

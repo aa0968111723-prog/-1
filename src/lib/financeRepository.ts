@@ -19,6 +19,9 @@ import { STORAGE_KEYS, loadJSON, saveJSON } from './storage';
 import { FinanceStore, financeStore } from './financeStore';
 import { getLocalDateKey, monthKeyOf } from './datetime';
 import { addAmounts, subtractAmounts, subtractClampedAtZero, sumAmounts } from './money';
+import { isTombstoned, TOMBSTONE_RETENTION_DAYS } from './tombstone';
+
+export { isTombstoned, TOMBSTONE_RETENTION_DAYS };
 
 export interface TodaySummary {
   date: string; // YYYY-MM-DD
@@ -51,7 +54,29 @@ export class FinanceRepository {
   }
 
   // ---- loads ----
+  /**
+   * The ledger as the user sees it. Tombstones are storage, not content.
+   *
+   * Filtering here rather than at each call site is deliberate: analytics, the
+   * dashboard, the pet, the AI context and the CSV export all read through
+   * this one method, and any of them that forgot would quietly add deleted
+   * money back into a total. The sync engine is the only caller that needs the
+   * deleted rows, and it asks for them by name.
+   */
   getTransactions(): Transaction[] {
+    return this.readAllTransactions().filter(t => !isTombstoned(t));
+  }
+
+  /**
+   * Every row on disk, tombstones included. For the sync engine only: a
+   * deletion has to keep travelling, or the next pull resurrects the row from
+   * a device that never heard about it.
+   */
+  getAllTransactionsIncludingDeleted(): Transaction[] {
+    return this.readAllTransactions();
+  }
+
+  private readAllTransactions(): Transaction[] {
     return this.readKey<Transaction[]>(STORAGE_KEYS.transactions, []);
   }
 
@@ -122,7 +147,10 @@ export class FinanceRepository {
    * for the sync path.
    */
   addTransaction(newTx: Omit<Transaction, 'id'> & { id?: string }): Transaction {
-    const existingList = this.getTransactions();
+    // The raw list: writing back a filtered one would erase every tombstone,
+    // and matching ids against a filtered one would let a replayed outbox
+    // entry resurrect a row the user deleted.
+    const existingList = this.readAllTransactions();
     if (newTx.id) {
       const existing = existingList.find(t => t.id === newTx.id);
       if (existing) return existing;
@@ -147,20 +175,64 @@ export class FinanceRepository {
     return transaction;
   }
 
-  /** True when a transaction with this id is already in the ledger. */
+  /**
+   * True when this id has ever been recorded — including as a tombstone.
+   *
+   * Idempotency has to outlive deletion: if the native outbox replays an entry
+   * the user has since deleted, "already known" is the correct answer, and
+   * re-adding it would look like the app undoing the user's delete on its own.
+   */
   hasTransaction(id: string): boolean {
-    return this.getTransactions().some(t => t.id === id);
+    return this.readAllTransactions().some(t => t.id === id);
   }
 
+  /**
+   * Deletes by tombstoning, not by removing.
+   *
+   * A hard delete is invisible to every other device: the row is still in the
+   * cloud and still on the tablet, so the next pull brings it back and the
+   * user watches a transaction they deleted reappear. merge.ts has had the
+   * tombstone machinery all along — nothing in the app ever called it.
+   *
+   * The row keeps its id and its linked-effect record so a later merge can
+   * still reason about it; only `deletedAt` decides visibility.
+   */
   deleteTransaction(id: string): void {
-    const transactions = this.getTransactions();
+    const transactions = this.readAllTransactions();
     const tx = transactions.find(t => t.id === id);
-    if (tx) {
-      const { debts, goals } = revertLinkedEffects(tx, this.getDebts(), this.getGoals());
-      this.saveDebts(debts);
-      this.saveGoals(goals);
-    }
-    this.saveTransactions(transactions.filter(t => t.id !== id));
+    if (!tx || isTombstoned(tx)) return;
+
+    const { debts, goals } = revertLinkedEffects(tx, this.getDebts(), this.getGoals());
+    this.saveDebts(debts);
+    this.saveGoals(goals);
+
+    const at = new Date().toISOString();
+    this.saveTransactions(
+      transactions.map(t => (t.id === id ? { ...t, deletedAt: at, updatedAt: at } : t)),
+    );
+  }
+
+  /**
+   * Drops tombstones that have outlived their purpose.
+   *
+   * A tombstone only has to survive long enough for every device to see it.
+   * Keeping them forever would grow the store without bound for a user who
+   * deletes a lot, which is the objection that made hard deletes tempting in
+   * the first place. Anything already confirmed by the cloud is safe to drop
+   * after the retention window; anything never synced is kept, because a
+   * device that has been offline for months still needs to hear about it.
+   */
+  pruneTombstones(now: Date = new Date(), retentionDays = TOMBSTONE_RETENTION_DAYS): number {
+    const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const all = this.readAllTransactions();
+    const kept = all.filter(t => {
+      if (!isTombstoned(t)) return true;
+      const row = t as Transaction & { deletedAt?: string; syncedAt?: string };
+      if (!row.syncedAt) return true;
+      return (row.deletedAt ?? '') > cutoff;
+    });
+    if (kept.length !== all.length) this.saveTransactions(kept);
+    return all.length - kept.length;
   }
 
   getTodaySummary(now: Date = new Date()): TodaySummary {
