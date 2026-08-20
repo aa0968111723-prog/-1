@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Cloud, CloudOff, Loader2, LogOut, Mail, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { authController, AuthState } from '../lib/cloud/auth';
-import { FinanceSyncEngine, SyncStatus } from '../lib/cloud/syncEngine';
-import { financeRepository } from '../lib/financeRepository';
+import { SyncStatus } from '../lib/cloud/syncEngine';
+import { financeSync as syncEngine } from '../lib/cloud/financeSync';
 import { getDeviceLabel } from '../lib/cloud/device';
 import { cn } from '../lib/utils';
 
@@ -24,7 +24,6 @@ import { cn } from '../lib/utils';
  *    user with 200 unsynced local entries deserves to know which it is.
  */
 
-const syncEngine = new FinanceSyncEngine(financeRepository);
 
 export default function AccountPanel() {
   const [auth, setAuth] = useState<AuthState>(authController.getState());
@@ -42,24 +41,8 @@ export default function AccountPanel() {
     setPending(syncEngine.countPending());
   }, [sync]);
 
-  // Sync triggers: sign-in, returning to the foreground, and the network
-  // coming back. Deliberately no polling — a timer that fires every few
-  // seconds costs battery to discover nothing has changed.
-  useEffect(() => {
-    if (auth.mode !== 'signed-in' || !auth.user) return;
-    void syncEngine.sync(auth.user.id);
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void syncEngine.sync(auth.user!.id);
-    };
-    const onOnline = () => void syncEngine.sync(auth.user!.id);
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('online', onOnline);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('online', onOnline);
-    };
-  }, [auth.mode, auth.user]);
+  // The sync triggers live in App, not here — see lib/cloud/financeSync.ts.
+  // A settings panel must not be the thing keeping sync alive.
 
   const sendCode = async () => {
     setBusy(true);

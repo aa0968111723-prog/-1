@@ -13,7 +13,9 @@ import { FinancePet, isNativePetAvailable } from './lib/petBridge';
 import { drainOutbox } from './lib/outboxSync';
 import { computePetFinanceState, toPetDisplayState } from './lib/petFinanceState';
 import { financeRepository } from './lib/financeRepository';
-import { getLocalDateKey, parseLocalDateKey } from './lib/datetime';
+import { cloudSyncConfigured } from './lib/cloud/enabled';
+import { getLocalDateKey } from './lib/datetime';
+import { dueOccurrences } from './lib/recurrence';
 import { getQuickCategories } from './lib/quickCategories';
 import PetSprite from './components/pet/PetSprite';
 
@@ -164,9 +166,25 @@ export default function App() {
     return [];
   });
 
-  // Save to local storage
+  /*
+   * Persist.
+   *
+   * The raw localStorage writes are the documented safety net (see the README:
+   * the legacy finance_* keys are kept untouched). They are NOT the durable
+   * copy — that is the FinanceStore behind financeRepository.
+   *
+   * Transactions, debts and goals already reach the store through the
+   * repository's own mutators. Budgets, recurring rules, the spreadsheet and
+   * monthly income did not: nothing wrote them through the repository at all,
+   * so the store kept whatever was loaded at startup. Anything reading through
+   * the repository — the AI's grounding context most visibly — got last
+   * session's numbers. Edit a budget from NT$3,000 to NT$9,999, ask 小財 about
+   * it, and it answered NT$3,000: not invented, just stale, which grounding
+   * was specifically supposed to prevent.
+   */
   useEffect(() => {
     localStorage.setItem('finance_monthly_income', monthlyIncome.toString());
+    financeRepository.saveMonthlyIncome(monthlyIncome);
   }, [monthlyIncome]);
 
   useEffect(() => {
@@ -175,10 +193,12 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('finance_budgets', JSON.stringify(budgets));
+    financeRepository.saveBudgets(budgets);
   }, [budgets]);
 
   useEffect(() => {
     localStorage.setItem('finance_recurring', JSON.stringify(recurring));
+    financeRepository.saveRecurring(recurring);
   }, [recurring]);
 
   useEffect(() => {
@@ -191,6 +211,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('finance_spreadsheet_records', JSON.stringify(spreadsheetRecords));
+    financeRepository.saveSpreadsheetRecords(spreadsheetRecords);
   }, [spreadsheetRecords]);
 
   useEffect(() => {
@@ -224,28 +245,23 @@ export default function App() {
     let hasUpdates = false;
 
     const nextRecurring = recurring.map(rt => {
-      let cursor = rt.nextDate;
-      let guard = 0;
-      while (cursor <= todayStr && guard < 1000) {
-        guard += 1;
+      // Date arithmetic lives in lib/recurrence.ts, where it is tested. Doing
+      // it inline here is how a rule set for the 31st ended up posting on the
+      // 3rd forever, with February skipped.
+      const { dates, nextDate } = dueOccurrences(rt, todayStr);
+      for (const dateKey of dates) {
         financeRepository.addTransaction({
-          id: `recurring:${rt.id}:${cursor}`,
+          id: `recurring:${rt.id}:${dateKey}`,
           type: rt.type,
           amount: rt.amount,
           category: rt.category,
-          date: cursor,
+          date: dateKey,
           note: `${rt.note}${rt.note ? ' ' : ''}(自動記帳)`,
           source: 'recurring',
         });
-        const next = parseLocalDateKey(cursor);
-        if (rt.frequency === 'daily') next.setDate(next.getDate() + 1);
-        else if (rt.frequency === 'weekly') next.setDate(next.getDate() + 7);
-        else if (rt.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
-        else if (rt.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
-        cursor = getLocalDateKey(next);
         hasUpdates = true;
       }
-      return cursor === rt.nextDate ? rt : { ...rt, nextDate: cursor };
+      return nextDate === rt.nextDate ? rt : { ...rt, nextDate };
     });
 
     if (hasUpdates) {
@@ -298,6 +314,63 @@ export default function App() {
       console.error('[FinancePet.Sync] entries kept in the outbox for retry', result.failedIds.length);
     }
   };
+
+  /*
+   * Cloud sync lives here, not in the account panel.
+   *
+   * Two defects in one: the engine was constructed inside AccountPanel, so
+   * syncing only ran while that settings screen was mounted; and nothing ever
+   * told React that a pull had happened, so rows arriving from another device
+   * stayed invisible until the user reloaded the page.
+   *
+   * Triggers are sign-in, returning to the foreground, and the network coming
+   * back — no polling, which would cost battery to discover nothing changed.
+   */
+  useEffect(() => {
+    // Nothing cloud-related is even loaded without a key — see lib/cloud/enabled.ts.
+    if (!cloudSyncConfigured) return;
+
+    let dispose: (() => void) | null = null;
+    let cancelled = false;
+
+    void Promise.all([import('./lib/cloud/financeSync'), import('./lib/cloud/auth')]).then(
+      ([{ financeSync }, { authController }]) => {
+        if (cancelled) return;
+
+        const runIfSignedIn = () => {
+          const { mode, user } = authController.getState();
+          if (mode === 'signed-in' && user) void financeSync.sync(user.id);
+        };
+
+        const unsubscribeAuth = authController.subscribe(runIfSignedIn);
+        const unsubscribeSync = financeSync.subscribe(status => {
+          // Only on a completed cycle that actually changed the ledger; a
+          // status tick for "syncing" would re-render the whole app for
+          // nothing.
+          if (status.phase === 'idle' && status.lastPulled > 0) syncFromRepository();
+        });
+
+        const onVisible = () => {
+          if (document.visibilityState === 'visible') runIfSignedIn();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('online', runIfSignedIn);
+
+        dispose = () => {
+          unsubscribeAuth();
+          unsubscribeSync();
+          document.removeEventListener('visibilitychange', onVisible);
+          window.removeEventListener('online', runIfSignedIn);
+        };
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Pull transactions queued by the native pet whenever the app becomes visible
   // or the pet notifies us that a new one was saved.

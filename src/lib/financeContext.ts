@@ -18,6 +18,14 @@
  * FinanceAnalyticsEngine. Individual rows are reachable only through an
  * explicit range lookup, and even then notes are redacted unless the caller
  * opts in.
+ *
+ * "Aggregates only" has to include the names the USER typed, which is where
+ * this module previously fell short: goal names and debt names went out
+ * verbatim. 「離婚基金」 as a goal name is exactly as revealing as 「離婚律師
+ * 諮詢」 as a note — the field it lives in does not make it less personal.
+ * So user-authored names are replaced with positional labels (目標 1, 負債 2)
+ * unless the caller explicitly opts in, and the payload states which of the
+ * two it is so the model never presents a pseudonym as the user's own word.
  */
 
 import {
@@ -29,8 +37,58 @@ import {
   GoalProgressItem,
   DebtSummary,
 } from './financeAnalytics';
+import { DebtSummaryItem } from './financeAnalytics';
 import { Transaction } from '../types';
 import { getLocalDateKey } from './datetime';
+import { CATEGORY_DEFS } from './categoryCatalog';
+
+// One copy, shared with server.ts — see financeSystemPrompt.ts for why.
+export { FINANCE_SYSTEM_PROMPT } from './financeSystemPrompt';
+
+/** Labels from the shared catalog are a closed set; anything else is the user's own words. */
+const CATALOG_LABELS: ReadonlySet<string> = new Set(
+  [...CATEGORY_DEFS.expense, ...CATEGORY_DEFS.income].map(d => d.label),
+);
+
+function safeCategoryLabel(stored: string): string {
+  return CATALOG_LABELS.has(stored) ? stored : '自訂分類';
+}
+
+/**
+ * Pseudonymises user-defined category labels, consistently within one payload.
+ *
+ * Built-in labels come from shared/pet-shared-config.json — a closed set, safe
+ * to send. Anything else is a name the user typed, and 「心理諮商」 is no less
+ * personal for being a category rather than a note. The same custom category
+ * must get the same stand-in everywhere in the payload, or the model will read
+ * one category as two.
+ */
+function categoryRedactor(includeUserNames: boolean): (label: string) => string {
+  if (includeUserNames) return label => label;
+  const assigned = new Map<string, string>();
+  return label => {
+    if (CATALOG_LABELS.has(label)) return label;
+    const existing = assigned.get(label);
+    if (existing) return existing;
+    const name = pseudonym('自訂分類', assigned.size);
+    assigned.set(label, name);
+    return name;
+  };
+}
+
+export interface ContextOptions {
+  /**
+   * Send the names the user typed (goal names, debt names) instead of
+   * positional labels. Off by default; this is the user's own choice to make,
+   * not a default we make for them.
+   */
+  includeUserNames?: boolean;
+}
+
+/** Positional stand-ins. Stable within one payload, meaningless outside it. */
+function pseudonym(kind: string, index: number): string {
+  return `${kind} ${index + 1}`;
+}
 
 export interface ContextPeriod {
   label: string;
@@ -45,6 +103,11 @@ export interface ContextPeriod {
 export interface FinanceContext {
   generatedAt: string;
   currency: string;
+  /**
+   * false = every `name` below is a positional stand-in, not what the user
+   * called it. The model is told to phrase answers accordingly.
+   */
+  userNamesIncluded: boolean;
   today: ContextPeriod;
   thisWeek: ContextPeriod;
   thisMonth: ContextPeriod;
@@ -59,7 +122,14 @@ export interface FinanceContext {
   }>;
   budgets: Array<{ label: string; budget: number; spent: number; usagePercent: number; state: string }>;
   goals: Array<{ name: string; target: number; current: number; progressPercent: number; daysLeft: number | null }>;
-  debt: { totalOutstanding: number; count: number; monthlyPaymentTotal: number; highestRateName: string | null };
+  debt: {
+    totalOutstanding: number;
+    count: number;
+    monthlyPaymentTotal: number;
+    highestRateName: string | null;
+    /** Always sent: the rate identifies the debt usefully without naming it. */
+    highestRateAnnualPercent: number | null;
+  };
   fixedCostRatioPercent: number;
   savingsRatePercent: number | null;
 }
@@ -84,7 +154,13 @@ function round1(v: number): number {
  * The whole default payload. Aggregates only — no note, no merchant, no
  * individual transaction, no id.
  */
-export function buildFinanceContext(input: AnalyticsInput, now: Date = new Date()): FinanceContext {
+export function buildFinanceContext(
+  input: AnalyticsInput,
+  now: Date = new Date(),
+  options: ContextOptions = {},
+): FinanceContext {
+  const includeUserNames = options.includeUserNames === true;
+  const safeCategory = categoryRedactor(includeUserNames);
   const engine = new FinanceAnalyticsEngine(input, now);
   const month = engine.getSummary('month');
   const breakdown = engine.getCategoryBreakdown('month', 8);
@@ -94,27 +170,28 @@ export function buildFinanceContext(input: AnalyticsInput, now: Date = new Date(
   return {
     generatedAt: now.toISOString(),
     currency: 'TWD',
+    userNamesIncluded: includeUserNames,
     today: period('今天', engine.totalsFor(engine.dayRange())),
     thisWeek: period('本週', engine.totalsFor(engine.weekRange())),
     thisMonth: period('本月', month),
     lastMonth: period('上個月', month.previous),
     expenseChangePercent: month.expenseChangePercent === null ? null : round1(month.expenseChangePercent),
     categoryChanges: breakdown.map(c => ({
-      label: c.label,
+      label: safeCategory(c.label),
       amount: c.amount,
       previousAmount: c.previousAmount,
       changePercent: c.changePercent === null ? null : round1(c.changePercent),
       share: round1(c.share * 100),
     })),
     budgets: engine.getBudgetStatus('month').map(b => ({
-      label: b.label,
+      label: safeCategory(b.label),
       budget: b.budget,
       spent: b.spent,
       usagePercent: round1(b.usage * 100),
       state: b.state,
     })),
-    goals: engine.getGoalStatus().map(g => ({
-      name: g.name,
+    goals: engine.getGoalStatus().map((g, i) => ({
+      name: includeUserNames ? g.name : pseudonym('目標', i),
       target: g.targetAmount,
       current: g.currentAmount,
       progressPercent: round1(g.progress * 100),
@@ -124,7 +201,9 @@ export function buildFinanceContext(input: AnalyticsInput, now: Date = new Date(
       totalOutstanding: debt.totalOutstanding,
       count: debt.count,
       monthlyPaymentTotal: debt.monthlyPaymentTotal,
-      highestRateName: debt.highestRate?.name ?? null,
+      highestRateName: includeUserNames ? (debt.highestRate?.name ?? null) : null,
+      highestRateAnnualPercent:
+        debt.highestRate === null ? null : round1(debt.highestRate.interestRate),
     },
     fixedCostRatioPercent: round1(engine.getFixedCostRatio('month') * 100),
     savingsRatePercent: savings === null ? null : round1(savings * 100),
@@ -148,9 +227,15 @@ export interface RedactedTransaction {
  */
 export class FinanceFunctions {
   private engine: FinanceAnalyticsEngine;
+  private readonly includeUserNames: boolean;
 
-  constructor(private input: AnalyticsInput, private now: Date = new Date()) {
+  constructor(
+    private input: AnalyticsInput,
+    private now: Date = new Date(),
+    options: ContextOptions = {},
+  ) {
     this.engine = new FinanceAnalyticsEngine(input, now);
+    this.includeUserNames = options.includeUserNames === true;
   }
 
   getFinanceSummary(period: PeriodKind = 'month') {
@@ -167,19 +252,58 @@ export class FinanceFunctions {
   }
 
   getCategoryBreakdown(period: PeriodKind = 'month', limit = 10): CategoryBreakdownItem[] {
-    return this.engine.getCategoryBreakdown(period, limit);
+    const safe = categoryRedactor(this.includeUserNames);
+    return this.engine.getCategoryBreakdown(period, limit).map(c => ({
+      ...c,
+      categoryId: CATALOG_LABELS.has(c.label) ? c.categoryId : '',
+      label: safe(c.label),
+    }));
   }
 
   getBudgetStatus(): BudgetUsageItem[] {
-    return this.engine.getBudgetStatus('month');
+    const safe = categoryRedactor(this.includeUserNames);
+    return this.engine.getBudgetStatus('month').map(b => ({
+      ...b,
+      // A custom category's id IS its label, so the id leaks the same text.
+      categoryId: CATALOG_LABELS.has(b.label) ? b.categoryId : '',
+      label: safe(b.label),
+    }));
   }
 
+  /**
+   * Ids are dropped and names are pseudonymised by default.
+   *
+   * This layer leaked more than the default payload did: it returned the raw
+   * engine types, so every goal name, every debt name and every internal id
+   * went out whole. The model has no use for a uuid, and the name is the
+   * user's to share.
+   */
   getGoalStatus(): GoalProgressItem[] {
-    return this.engine.getGoalStatus();
+    return this.engine.getGoalStatus().map((g, i) => ({
+      ...g,
+      id: '',
+      name: this.includeUserNames ? g.name : pseudonym('目標', i),
+    }));
   }
 
   getDebtSummary(): DebtSummary {
-    return this.engine.getDebtSummary();
+    const summary = this.engine.getDebtSummary();
+    const rename = (d: DebtSummaryItem, i: number): DebtSummaryItem => ({
+      ...d,
+      id: '',
+      name: this.includeUserNames ? d.name : pseudonym('負債', i),
+    });
+    const items = summary.items.map(rename);
+    // Keep the highest-rate pointer consistent with the renamed list rather
+    // than renaming it separately, or the model sees two names for one debt.
+    const highestIndex = summary.highestRate
+      ? summary.items.findIndex(d => d.id === summary.highestRate!.id)
+      : -1;
+    return {
+      ...summary,
+      items,
+      highestRate: highestIndex >= 0 ? items[highestIndex] : null,
+    };
   }
 
   /**
@@ -202,46 +326,14 @@ export class FinanceFunctions {
         date: t.date,
         type: t.type,
         amount: t.amount,
-        category: t.category,
+        // A stored category is a zh-TW label, and for a user-defined category
+        // that label is user-authored text. Resolve through the catalog so
+        // only closed-set labels leave; anything unrecognised is generic.
+        category: safeCategoryLabel(t.category),
         ...(options.includeNotes && t.note ? { note: t.note } : {}),
       }));
   }
 }
-
-/**
- * The system prompt.
- *
- * Everything here exists because of a specific failure mode:
- *
- *  - "只依據提供的資料" stops the model answering from its training data.
- *  - "不要自己重新計算大型總和" stops it re-adding numbers that were already
- *    computed exactly in integer minor units. An LLM summing 300 figures in
- *    prose will be wrong, and confidently.
- *  - "不知道就說不知道" is the one that matters most in a finance app. A
- *    plausible invented number is worse than an admission, because the user
- *    cannot tell the difference.
- *  - The no-shaming rule matches the insight engine; the assistant must not be
- *    the one place in the product that judges people.
- */
-export const FINANCE_SYSTEM_PROMPT = `你是 FinTracker 的財務助理。使用繁體中文，簡潔、具體。
-
-【資料來源】
-使用者訊息會附上一份 FINANCE_CONTEXT JSON，那是由本機的分析引擎精確計算出來的。
-- 只依據 FINANCE_CONTEXT 回答財務數字。
-- FINANCE_CONTEXT 裡沒有的東西，就說你手上沒有那項資料，並說明使用者可以去哪裡看。
-- 絕對不要編造交易、金額、日期或分類。
-- 不要自己重新加總大量數字。引擎已經算好了（而且是用整數精確運算），
-  直接引用 income / expense / categoryChanges 等欄位。你可以做簡單的比較與百分比說明。
-- 金額一律寫成 NT$ 加千分位，例如 NT$ 1,280。
-
-【隱私】
-FINANCE_CONTEXT 只包含彙總數字，不含備註與商家名稱。
-使用者若問到某一筆的細節，請告訴他在「收支明細」可以看到，不要猜內容。
-
-【語氣】
-陳述事實，不評價。不要說「亂花」「浪費」「太多」「不該」這類字眼，
-也不要暗示使用者做錯了。使用者要的是看清楚自己的錢，不是被自己的記帳軟體訓話。
-提出建議時給具體可執行的做法，並說清楚那是根據哪個數字。`;
 
 /** Wraps the user's question with the grounding payload. */
 export function buildGroundedMessage(question: string, context: FinanceContext): string {

@@ -2,8 +2,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!--
+      allowBackup=false: the ledger does not leave the device by accident.
+
+      With it on, Android's Auto Backup copies app-private data — including the
+      WebView storage this app keeps the whole ledger in — to the user's Google
+      Drive, and `adb backup` can pull it off an unlocked device. This is a
+      local-first finance app whose notes say things like 「離婚律師諮詢」; that
+      data going to a cloud the user did not choose contradicts what the README
+      promises them.
+
+      Backup is not being removed, only made deliberate: 設定 → 匯出財務資料
+      writes a complete JSON (it now includes the custom categories too), and
+      cloud sync is opt-in behind a sign-in. On API 31+ allowBackup=false also
+      covers device-to-device transfer, so there is no second attribute to keep
+      in step.
+    -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

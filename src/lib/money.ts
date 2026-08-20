@@ -98,6 +98,14 @@ export function parseAmountInput(raw: string): number | null {
   if (cleaned === '') return null;
   const value = Number(cleaned);
   if (!Number.isFinite(value) || value <= 0 || value > MAX_TRANSACTION_AMOUNT) return null;
-  // keep at most 2 decimals, exactly
-  return fromMinor(toMinor(value));
+  /*
+   * Validate the rounded value, not the raw one.
+   *
+   * The guard above ran BEFORE rounding, so 0.001 passed it and then rounded
+   * to 0 — the function returned a zero amount while documenting that it
+   * rejects zero, and callers that only check for null happily recorded a
+   * NT$0 transaction.
+   */
+  const rounded = fromMinor(toMinor(value));
+  return rounded > 0 ? rounded : null;
 }

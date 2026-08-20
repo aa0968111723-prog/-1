@@ -260,11 +260,11 @@ describe('categoryRegistry — describeCategory', () => {
 
   it('keeps an unrecognised value visible under its own label', () => {
     const storage = createMemoryStorage();
-    // It buckets as other_expense for ranking, but the DISPLAY keeps the
-    // stored label — a transaction filed under a custom category the user
-    // later deleted must not silently re-label itself 其他支出.
+    // A transaction filed under a custom category the user later deleted must
+    // not silently re-label itself 其他支出 — and must not be MERGED into it
+    // either, which is what the old 'other_expense' id caused downstream.
     expect(describeCategory('完全沒看過的東西', storage)).toEqual({
-      id: 'other_expense',
+      id: '完全沒看過的東西',
       label: '完全沒看過的東西',
       emoji: '🏷️',
     });
@@ -292,8 +292,9 @@ describe('categoryRegistry — describeCategory', () => {
     const added = addCustomCategory({ label: '寵物', emoji: '🐾', type: 'expense' }, storage);
     removeCustomCategory(added.category!.id, storage);
 
-    // History keeps its stored label; it now resolves through the catalog fallback.
-    expect(describeCategory('寵物', storage).id).toBe('other_expense');
+    // History keeps its stored label AND stays its own bucket, so the spend
+    // does not silently move into 其他支出 the moment the category is removed.
+    expect(describeCategory('寵物', storage).id).toBe('寵物');
   });
 
   it('ignores malformed rows persisted in storage', () => {

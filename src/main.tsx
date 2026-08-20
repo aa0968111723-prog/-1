@@ -7,6 +7,7 @@ import './index.css';
 import {runStorageMigration} from './lib/storage';
 import {runIntegrityCheck} from './lib/integrity';
 import {financeStore} from './lib/financeStore';
+import {cloudSyncConfigured} from './lib/cloud/enabled';
 
 // Storage schema migration must complete before any component reads finance data.
 runStorageMigration();
@@ -64,6 +65,29 @@ function mount() {
  * localStorage internally, and a working app on the old backend beats a
  * blank screen.
  */
+/*
+ * Restore any stored session.
+ *
+ * authController.init() existed, was documented as safe to call without cloud
+ * configured, and had no caller anywhere in the app. Its one job is to clear
+ * `loading`, which the account panel renders as a spinner — so with a
+ * publishable key set, that screen would have sat on the spinner forever and
+ * nobody could have signed in.
+ *
+ * Deliberately NOT awaited before mount: the ledger is local-first and must
+ * not wait on the network to draw. Failures are already swallowed inside
+ * init(), which falls back to guest.
+ *
+ * Imported dynamically and only when a key is configured: a static import
+ * would put the whole Supabase SDK in the entry chunk, which every user
+ * downloads before the first paint whether or not they sync.
+ */
+if (cloudSyncConfigured) {
+  void import('./lib/cloud/auth')
+    .then(m => m.authController.init())
+    .catch(e => console.warn('[FinTracker.Auth] init failed', e));
+}
+
 financeStore
   .init()
   .then(result => {

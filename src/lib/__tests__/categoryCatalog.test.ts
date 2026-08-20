@@ -35,8 +35,17 @@ describe('categoryCatalog', () => {
     expect(labelForCategoryId('food')).toBe('餐飲美食');
   });
 
-  it('falls back to other_expense for unknown values', () => {
-    expect(categoryIdForStored('完全不存在的分類')).toBe('other_expense');
+  it('keeps an unrecognised value as its own category rather than merging it', () => {
+    // This used to return 'other_expense', which merged every user-defined
+    // category into one bucket in the analysis while the UI still showed them
+    // separately. A category the engine cannot name is still a category.
+    expect(categoryIdForStored('完全不存在的分類')).toBe('完全不存在的分類');
+    expect(labelForCategoryId('完全不存在的分類')).toBe('完全不存在的分類');
+  });
+
+  it('still buckets empty and whitespace-only values, which are corruption', () => {
+    expect(categoryIdForStored('')).toBe('other_expense');
+    expect(categoryIdForStored('   ')).toBe('other_expense');
   });
 
   it('every quick chip references a real category of its type', () => {

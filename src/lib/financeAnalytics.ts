@@ -28,6 +28,7 @@
  */
 
 import { Transaction, BudgetConfig, Debt, Goal, RecurringTransaction } from '../types';
+import { isTombstoned } from './tombstone';
 import {
   getLocalDateKey,
   getLocalWeekStartKey,
@@ -39,7 +40,30 @@ import {
   daysBetween,
 } from './datetime';
 import { sumAmounts, subtractAmounts } from './money';
-import { categoryIdForStored, labelForCategoryId, emojiForCategory } from './categoryCatalog';
+import {
+  categoryIdForStored,
+  labelForCategoryId,
+  emojiForCategory,
+  CUSTOM_CATEGORY_PREFIX,
+} from './categoryCatalog';
+
+/**
+ * The one bucket key for a transaction's category.
+ *
+ * A user-defined category has two identities in stored data: the zh-TW label,
+ * which every write path records (see categoryRegistry's docblock), and a
+ * `custom:<slug>` id that only the pinned-quick-chip path attaches. Keying on
+ * whichever happens to be present split one category into two rows — 寵物 via
+ * a chip and 寵物 via the full form landed in separate buckets, and the chip
+ * one rendered as the literal string "custom:寵物".
+ *
+ * The label wins, because it is the identity every path agrees on. Built-in
+ * ids are taken as given: they are a closed set and never ambiguous.
+ */
+function bucketIdFor(t: Transaction): string {
+  if (t.categoryId && !t.categoryId.startsWith(CUSTOM_CATEGORY_PREFIX)) return t.categoryId;
+  return categoryIdForStored(t.category);
+}
 
 // ---------------------------------------------------------------- contracts
 
@@ -182,6 +206,35 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
+/**
+ * A transaction posted by a recurring rule rather than typed by the user.
+ *
+ * Two markers because both are load-bearing and neither is guaranteed on old
+ * rows: `source` is what App.tsx stamps today, and the deterministic
+ * `recurring:<ruleId>:<dateKey>` id is what makes the posting idempotent (and
+ * is present on every such row ever written, including before `source` existed).
+ */
+function isRecurringPosting(t: Transaction): boolean {
+  return t.source === 'recurring' || (typeof t.id === 'string' && t.id.startsWith('recurring:'));
+}
+
+/**
+ * Which of two stored budget keys should represent a category.
+ *
+ * Canonical label wins, then the id itself, then lexical order — the last one
+ * only so that a ledger with two equally-legacy keys still produces the same
+ * row on every render instead of following object insertion order.
+ */
+function preferBudgetKey(candidate: string, incumbent: string, categoryId: string): boolean {
+  const rank = (key: string): number => {
+    if (key === labelForCategoryId(categoryId)) return 0;
+    if (key === categoryId) return 1;
+    return 2;
+  };
+  const [a, b] = [rank(candidate), rank(incumbent)];
+  return a !== b ? a < b : candidate < incumbent;
+}
+
 // ------------------------------------------------------------------ engine
 
 export class FinanceAnalyticsEngine {
@@ -199,7 +252,7 @@ export class FinanceAnalyticsEngine {
   private readonly sortedDayKeys: string[];
 
   constructor(input: AnalyticsInput, now: Date = new Date()) {
-    this.txs = input.transactions ?? [];
+    this.txs = (input.transactions ?? []).filter(t => !isTombstoned(t));
     this.budgets = input.budgets ?? {};
     this.debts = input.debts ?? [];
     this.goals = input.goals ?? [];
@@ -209,6 +262,10 @@ export class FinanceAnalyticsEngine {
 
     for (const t of this.txs) {
       if (!t || typeof t.date !== 'string') continue;
+      // A tombstone is a row the user deleted; it stays on disk only so the
+      // deletion can sync. Summing one would put deleted money back into
+      // every total in the app.
+      if (isTombstoned(t)) continue;
       const bucket = this.byDay.get(t.date);
       if (bucket) bucket.push(t);
       else this.byDay.set(t.date, [t]);
@@ -324,7 +381,7 @@ export class FinanceAnalyticsEngine {
     const perCategory = new Map<string, number[]>();
     for (const t of this.getTransactionsByRange(range.startKey, range.endKey)) {
       if (t.type !== 'expense') continue;
-      const id = t.categoryId ?? categoryIdForStored(t.category);
+      const id = bucketIdFor(t);
       const bucket = perCategory.get(id);
       if (bucket) bucket.push(t.amount);
       else perCategory.set(id, [t.amount]);
@@ -338,9 +395,31 @@ export class FinanceAnalyticsEngine {
     const spentByCategory = this.sumByCategory(this.rangeFor(kind));
     const items: BudgetUsageItem[] = [];
 
-    for (const [storedKey, config] of Object.entries(this.budgets)) {
+    /*
+     * Several stored keys can name one category — a budget saved under the
+     * legacy 'Loan Repayments' and another under 負債償還 both resolve to
+     * `debt`. Emitting a row each charged the SAME spend to both, so NT$3,000
+     * showed up as NT$6,000 of consumption across the two rows and the user
+     * looked over budget when they were not.
+     *
+     * Keep one row per category and prefer the key that is the category's
+     * current label (then its id, then lexical order, so the choice is
+     * deterministic rather than dependent on object key order). The legacy
+     * alias is by definition the old name, so preferring the canonical one
+     * keeps the budget the user most recently meant.
+     */
+    const byCategory = new Map<string, [string, BudgetConfig]>();
+    for (const entry of Object.entries(this.budgets)) {
+      const [storedKey, config] = entry;
       if (!config || !(config.amount > 0)) continue;
       const categoryId = categoryIdForStored(storedKey);
+      const existing = byCategory.get(categoryId);
+      if (!existing || preferBudgetKey(storedKey, existing[0], categoryId)) {
+        byCategory.set(categoryId, entry);
+      }
+    }
+
+    for (const [categoryId, [, config]] of byCategory) {
       const spent = spentByCategory.get(categoryId) ?? 0;
       const usage = config.amount > 0 ? spent / config.amount : 0;
       const threshold = config.alertThreshold > 0 ? config.alertThreshold : 80;
@@ -404,14 +483,45 @@ export class FinanceAnalyticsEngine {
     };
   }
 
-  /** Recurring commitments as a share of this period's spending. */
+  /**
+   * How much of what was actually spent this period was a fixed commitment.
+   *
+   * This used to divide a MONTHLY commitment total by the selected period's
+   * spend, whatever that period was. The numerator ignored `kind` entirely, so
+   * 'day' and 'week' returned the same number as 'month' — meaningless — and
+   * even 'month' was unbounded: NT$20,000 of rent against NT$300 logged so far
+   * this month gave 66.7, which reached the assistant as
+   * "fixedCostRatioPercent: 6666.7".
+   *
+   * Recurring rules are materialised into real transactions (App.tsx posts
+   * them with source 'recurring' and a deterministic `recurring:<rule>:<date>`
+   * id), so the money is already in the denominator. Counting the posted rows
+   * instead of re-deriving a monthly equivalent makes the numerator and
+   * denominator the same period, the same rows and the same units — the result
+   * is in [0, 1] by construction, for every period.
+   */
+  /**
+   * Total monthly-equivalent value of the user's recurring commitments.
+   *
+   * Split out from getFixedCostRatio so the forward-looking number — "NT$2,200
+   * a month is already spoken for" — survives as its own answer. It is a
+   * currency amount, not a ratio, so there is no period for it to disagree
+   * with and no way for it to render as 6666%.
+   */
+  getMonthlyCommitment(): number {
+    return sumAmounts(this.recurring.filter(r => r.type === 'expense').map(r => monthlyEquivalent(r)));
+  }
+
   getFixedCostRatio(kind: PeriodKind = 'month'): number {
-    const expense = this.totalsFor(this.rangeFor(kind)).expense;
+    const range = this.rangeFor(kind);
+    const expense = this.totalsFor(range).expense;
     if (expense <= 0) return 0;
-    const monthlyCommitment = sumAmounts(
-      this.recurring.filter(r => r.type === 'expense').map(r => monthlyEquivalent(r)),
+    const fixed = sumAmounts(
+      this.getTransactionsByRange(range.startKey, range.endKey)
+        .filter(t => t?.type === 'expense' && isRecurringPosting(t))
+        .map(t => t.amount),
     );
-    return monthlyCommitment / expense;
+    return fixed / expense;
   }
 
   getSavingsRate(kind: PeriodKind = 'month'): number | null {
@@ -436,7 +546,7 @@ export class FinanceAnalyticsEngine {
     const per = new Map<string, number[]>();
     for (const t of this.txs) {
       if (t?.type !== 'expense') continue;
-      const id = t.categoryId ?? categoryIdForStored(t.category);
+      const id = bucketIdFor(t);
       const bucket = per.get(id);
       if (bucket) bucket.push(t.amount);
       else per.set(id, [t.amount]);

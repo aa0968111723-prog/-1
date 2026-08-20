@@ -8,6 +8,7 @@
 
 import { Transaction, BudgetConfig, Goal } from '../types';
 import { computeTodaySummary, toLocalDateString } from './financeRepository';
+import { FinanceAnalyticsEngine } from './financeAnalytics';
 
 export type PetMood =
   | 'idle'
@@ -122,7 +123,10 @@ export function pickMoodAndMessage(ctx: MessageContext): { mood: PetMood; messag
     return { mood: 'celebrate', message: `連續 ${milestone} 天有記帳 ✨ 好習慣養成中！` };
   }
   if (ctx.budgetRatio >= 1 && ctx.hasBudget) {
-    return { mood: 'warning', message: '這個月支出比較接近預算了，要一起看看嗎？' };
+    // Factual, not soft: at 100% or more, 「比較接近預算」 understates what
+    // happened. Stating it plainly is not shaming — the no-shaming rule is
+    // about judgement (「亂花」「浪費」), not about accuracy.
+    return { mood: 'warning', message: '這個月有一類支出已經超過設定的預算了，要一起看看嗎？' };
   }
   if (ctx.budgetRatio >= 0.85 && ctx.hasBudget) {
     return { mood: 'warning', message: '今天稍微注意一下錢包哦～' };
@@ -165,16 +169,38 @@ export function pickMoodAndMessage(ctx: MessageContext): { mood: PetMood; messag
 export function computePetFinanceState(input: PetFinanceInput): PetFinanceState {
   const now = input.now ?? new Date();
   const today = computeTodaySummary(input.transactions, now);
-  const monthPrefix = toLocalDateString(now).slice(0, 7);
-  const monthExpense = input.transactions
-    .filter(t => t.type === 'expense' && t.date.startsWith(monthPrefix))
-    .reduce((sum, t) => sum + t.amount, 0);
+  /*
+   * Month totals and budget pressure come from FinanceAnalyticsEngine, not
+   * from a second implementation here.
+   *
+   * The one that used to live in this function disagreed with the rest of the
+   * app in three separate ways:
+   *
+   *  - It divided ALL month expense by the sum of only the BUDGETED
+   *    categories. Budget 餐飲美食 at NT$3,000, spend exactly that plus
+   *    NT$20,000 of unbudgeted rent, and the pet computed 7.67 — while the
+   *    engine reported 餐飲美食 usage 1.0, state 'over'. The pet then said
+   *    「比較接近預算了」, which contradicts both its own number and the
+   *    budget page the user is looking at.
+   *  - It summed every stored budget key, so a category with both a legacy
+   *    and a current key counted twice — the collision the engine dedupes.
+   *  - `t.date.startsWith(...)` threw outright on a row with no date, and
+   *    this runs on the path that pushes state to the native overlay.
+   *
+   * Pressure is now the worst single category's usage, which is the same
+   * definition the home screen and the budget page already use.
+   */
+  const engine = new FinanceAnalyticsEngine(
+    { transactions: input.transactions, budgets: input.budgets },
+    now,
+  );
+  const monthExpense = engine.totalsFor(engine.monthRange()).expense;
   const streak = computeStreak(input.transactions, now);
   const xp = computeXp(input.transactions, streak);
   const level = levelForXp(xp);
 
-  const totalBudget = Object.values(input.budgets).reduce((sum, b) => sum + (b.amount || 0), 0);
-  const budgetRatio = totalBudget > 0 ? monthExpense / totalBudget : 0;
+  const budgetRows = engine.getBudgetStatus('month');
+  const budgetRatio = budgetRows.length > 0 ? Math.max(...budgetRows.map(b => b.usage)) : 0;
 
   const goalReached = input.goals.some(g => g.targetAmount > 0 && g.currentAmount >= g.targetAmount);
   const goalClose = input.goals.some(
@@ -186,7 +212,7 @@ export function computePetFinanceState(input: PetFinanceInput): PetFinanceState 
     goalReached,
     goalClose,
     budgetRatio,
-    hasBudget: totalBudget > 0,
+    hasBudget: budgetRows.length > 0,
     todayCount: today.count,
     todayExpense: today.expenseTotal,
     streak,

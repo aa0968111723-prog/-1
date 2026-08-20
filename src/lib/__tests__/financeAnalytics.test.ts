@@ -234,13 +234,177 @@ describe('derived ratios', () => {
       { id: 'r1', type: 'expense', amount: 1200, category: '居家生活', frequency: 'monthly', startDate: '2026-01-01', nextDate: '2026-09-01', note: '房租' },
       { id: 'r2', type: 'expense', amount: 12000, category: '學習進修', frequency: 'yearly', startDate: '2026-01-01', nextDate: '2027-01-01', note: '年費' },
     ];
-    const e = engine({ transactions: [tx('2026-08-10', 4400)], recurring });
-    // 1200 + 12000/12 = 2200 against 4400 spent
-    expect(e.getFixedCostRatio('month')).toBeCloseTo(0.5, 5);
+    // 1200 + 12000/12 = 2200. A currency amount, so no period can disagree
+    // with it — this is the forward-looking half of the old fixed-cost metric.
+    expect(engine({ recurring }).getMonthlyCommitment()).toBe(2200);
   });
 
   it('fixed cost ratio is zero rather than dividing by zero spending', () => {
     expect(engine({ recurring: [] }).getFixedCostRatio('month')).toBe(0);
+  });
+
+  describe('fixed cost ratio is a share of what was actually spent', () => {
+    const rent: RecurringTransaction[] = [
+      { id: 'r1', type: 'expense', amount: 20000, category: '居家生活', frequency: 'monthly', startDate: '2026-01-01', nextDate: '2026-09-01', note: '房租' },
+    ];
+    /** What App.tsx writes when it materialises a rule. */
+    const posted = (date: string, amount: number): Transaction => ({
+      id: `recurring:r1:${date}`,
+      type: 'expense',
+      amount,
+      category: '居家生活',
+      date,
+      note: '房租 (自動記帳)',
+      source: 'recurring',
+    });
+
+    it('counts the postings a rule actually made', () => {
+      const e = engine({ transactions: [posted('2026-08-05', 20000), tx('2026-08-10', 5000)], recurring: rent });
+      // 20000 of 25000 spent this month was the rent posting.
+      expect(e.getFixedCostRatio('month')).toBeCloseTo(0.8, 5);
+    });
+
+    it('never exceeds 1, however large the commitment', () => {
+      // The old implementation divided a MONTHLY commitment by the period's
+      // spend, so NT$20,000 of rent against NT$300 logged gave 66.7 — which
+      // reached the assistant as "fixedCostRatioPercent: 6666.7".
+      const e = engine({ transactions: [tx('2026-08-10', 300)], recurring: rent });
+      expect(e.getFixedCostRatio('month')).toBeLessThanOrEqual(1);
+      expect(e.getFixedCostRatio('month')).toBe(0);
+    });
+
+    it('answers per period instead of returning the monthly figure for all of them', () => {
+      // Previously day, week and month all returned an identical number,
+      // because the numerator ignored the period entirely.
+      const e = engine({
+        transactions: [posted('2026-08-20', 20000), tx('2026-08-01', 9000)],
+        recurring: rent,
+      });
+      expect(e.getFixedCostRatio('day')).toBe(1);
+      expect(e.getFixedCostRatio('month')).toBeCloseTo(20000 / 29000, 5);
+    });
+
+    it('recognises an old posting by its deterministic id when source is absent', () => {
+      const legacy: Transaction = { ...posted('2026-08-05', 20000) };
+      delete (legacy as { source?: string }).source;
+      const e = engine({ transactions: [legacy, tx('2026-08-10', 5000)], recurring: rent });
+      expect(e.getFixedCostRatio('month')).toBeCloseTo(0.8, 5);
+    });
+  });
+});
+
+describe('categories the user invented are still categories', () => {
+  it('does not merge custom categories into 其他支出', () => {
+    // Every user-defined category used to resolve to 'other_expense', so the
+    // breakdown showed one 其他支出 row of 1800 and the user could not see
+    // where 心理諮商 or 寵物用品 went — while the UI listed both by name.
+    const e = engine({
+      transactions: [
+        tx('2026-08-10', 1000, '心理諮商'),
+        tx('2026-08-10', 500, '寵物用品'),
+        tx('2026-08-10', 300, '其他支出'),
+      ],
+    });
+    const rows = e.getCategoryBreakdown('month').map(r => [r.label, r.amount]);
+    expect(rows).toEqual([
+      ['心理諮商', 1000],
+      ['寵物用品', 500],
+      ['其他支出', 300],
+    ]);
+  });
+
+  it('charges a budget on a custom category only for that category', () => {
+    // The collapse made a 心理諮商 budget absorb every unrecognised category's
+    // spend plus the genuine 其他支出 rows.
+    const e = engine({
+      transactions: [tx('2026-08-10', 1000, '心理諮商'), tx('2026-08-10', 300, '其他支出')],
+      budgets: { 心理諮商: { amount: 2000, alertEnabled: true, alertThreshold: 80 } },
+    });
+    const row = e.getBudgetStatus('month').find(b => b.label === '心理諮商');
+    expect(row?.spent).toBe(1000);
+  });
+});
+
+describe('one category, one bucket, whichever path wrote the row', () => {
+  it('does not split a custom category by how it was recorded', () => {
+    // A pinned quick chip attaches categoryId 'custom:寵物'; the full form
+    // records the label only. Keying on whichever is present produced two
+    // rows for one category, and the chip one rendered as the literal string
+    // "custom:寵物" in the chart legend.
+    const viaChip = {
+      id: 'a', type: 'expense' as const, amount: 1200, category: '寵物',
+      categoryId: 'custom:寵物', date: '2026-08-10', note: '',
+    };
+    const viaForm = {
+      id: 'b', type: 'expense' as const, amount: 800, category: '寵物',
+      date: '2026-08-11', note: '',
+    };
+    const rows = engine({ transactions: [viaChip as Transaction, viaForm] })
+      .getCategoryBreakdown('month');
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].label).toBe('寵物');
+    expect(rows[0].amount).toBe(2000);
+  });
+
+  it('leaves built-in ids alone', () => {
+    const withId = {
+      id: 'a', type: 'expense' as const, amount: 100, category: '餐飲美食',
+      categoryId: 'food', date: '2026-08-10', note: '',
+    };
+    const rows = engine({ transactions: [withId as Transaction] }).getCategoryBreakdown('month');
+    expect(rows[0].categoryId).toBe('food');
+    expect(rows[0].label).toBe('餐飲美食');
+  });
+
+  it('charges a budget once for a category recorded both ways', () => {
+    const rows = engine({
+      transactions: [
+        { id: 'a', type: 'expense', amount: 1200, category: '寵物', categoryId: 'custom:寵物', date: '2026-08-10', note: '' } as Transaction,
+        { id: 'b', type: 'expense', amount: 800, category: '寵物', date: '2026-08-11', note: '' },
+      ],
+      budgets: { 寵物: { amount: 3000, alertEnabled: true, alertThreshold: 80 } },
+    }).getBudgetStatus('month');
+
+    expect(rows.find(b => b.label === '寵物')?.spent).toBe(2000);
+  });
+});
+
+describe('two budget keys for one category', () => {
+  it('counts the spend once and keeps the canonical key', () => {
+    // 'Loan Repayments' is a legacy alias of 負債償還. A ledger carrying both
+    // produced two rows, each charged the full NT$3,000 — so NT$3,000 of
+    // spending read as NT$6,000 consumed and the user looked over budget.
+    const e = engine({
+      transactions: [tx('2026-08-10', 3000, '負債償還')],
+      budgets: {
+        'Loan Repayments': { amount: 5000, alertEnabled: true, alertThreshold: 80 },
+        負債償還: { amount: 8000, alertEnabled: true, alertThreshold: 80 },
+      },
+    });
+    const rows = e.getBudgetStatus('month').filter(b => b.categoryId === 'debt');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].budget).toBe(8000);
+    expect(rows[0].spent).toBe(3000);
+  });
+
+  it('picks the same row regardless of which key was stored first', () => {
+    const spend = [tx('2026-08-10', 3000, '負債償還')];
+    const a = engine({
+      transactions: spend,
+      budgets: {
+        負債償還: { amount: 8000, alertEnabled: true, alertThreshold: 80 },
+        'Loan Repayments': { amount: 5000, alertEnabled: true, alertThreshold: 80 },
+      },
+    }).getBudgetStatus('month');
+    const b = engine({
+      transactions: spend,
+      budgets: {
+        'Loan Repayments': { amount: 5000, alertEnabled: true, alertThreshold: 80 },
+        負債償還: { amount: 8000, alertEnabled: true, alertThreshold: 80 },
+      },
+    }).getBudgetStatus('month');
+    expect(a).toEqual(b);
   });
 });
 
